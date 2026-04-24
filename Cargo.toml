@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/chrona-core",
+    "crates/chrona-query",
+    "crates/chrona-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chrona-db/chrona"
+homepage = "https://github.com/chrona-db/chrona"
+authors = ["Chrona Contributors"]
+description = "Embedded temporal graph database — SQLite for graphs that change over time"
+readme = "README.md"
+keywords = ["graph", "database", "temporal", "embedded", "time-travel"]
+categories = ["database-implementations", "data-structures"]
+
+[workspace.dependencies]
+# Internal
+chrona-core = { path = "crates/chrona-core", version = "0.1.0" }
+chrona-query = { path = "crates/chrona-query", version = "0.1.0" }
+
+# Storage
+redb = "2.2"
+
+# Serialization
+ciborium = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+
+# Errors
+thiserror = "1.0"
+
+# Time parsing
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Tracing (structured logging)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Testing / fixtures
+tempfile = "3.10"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+debug = true

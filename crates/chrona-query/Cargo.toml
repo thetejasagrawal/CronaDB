@@ -1,0 +1,19 @@
+[package]
+name = "chrona-query"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Query language and executor for Chrona"
+readme = "../../README.md"
+
+[dependencies]
+chrona-core = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

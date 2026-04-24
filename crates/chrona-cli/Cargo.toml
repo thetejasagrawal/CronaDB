@@ -1,0 +1,24 @@
+[package]
+name = "chrona-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "CLI for Chrona — SQLite for graphs that change over time"
+readme = "../../README.md"
+
+[[bin]]
+name = "chrona"
+path = "src/main.rs"
+
+[dependencies]
+chrona-core = { workspace = true }
+chrona-query = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+time = { workspace = true }
