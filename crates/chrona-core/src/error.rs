@@ -43,6 +43,9 @@ pub enum Error {
 
 impl Error {
     /// Stable error code suitable for pattern-matching in bindings and tests.
+    ///
+    /// These codes are stable across 1.x. Adding a new code is a minor-version
+    /// change; renaming or removing one requires a major bump.
     pub fn code(&self) -> &'static str {
         match self {
             Error::Storage(_) => "E_STORAGE",
@@ -53,6 +56,41 @@ impl Error {
             Error::Internal(_) => "E_INTERNAL",
             Error::Io(_) => "E_IO",
         }
+    }
+
+    /// True if the caller can reasonably retry or fix input and try again.
+    ///
+    /// `Query`, `Schema`, and `NotFound` are user-recoverable. `Storage`,
+    /// `Format`, `Io`, and `Internal` usually are not.
+    pub fn is_user_recoverable(&self) -> bool {
+        matches!(
+            self,
+            Error::Query(_) | Error::Schema(_) | Error::NotFound(_)
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codes_are_stable() {
+        assert_eq!(Error::Storage(String::new()).code(), "E_STORAGE");
+        assert_eq!(Error::Format(String::new()).code(), "E_FORMAT");
+        assert_eq!(Error::Query(String::new()).code(), "E_QUERY");
+        assert_eq!(Error::Schema(String::new()).code(), "E_SCHEMA");
+        assert_eq!(Error::NotFound(String::new()).code(), "E_NOT_FOUND");
+        assert_eq!(Error::Internal(String::new()).code(), "E_INTERNAL");
+    }
+
+    #[test]
+    fn recoverable_categorization() {
+        assert!(Error::Query(String::new()).is_user_recoverable());
+        assert!(Error::Schema(String::new()).is_user_recoverable());
+        assert!(Error::NotFound(String::new()).is_user_recoverable());
+        assert!(!Error::Storage(String::new()).is_user_recoverable());
+        assert!(!Error::Internal(String::new()).is_user_recoverable());
     }
 }
 

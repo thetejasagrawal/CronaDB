@@ -1,8 +1,8 @@
 //! Tokenizer for the Chrona DSL.
 //!
 //! Keywords are case-insensitive and mapped to a fixed set. String literals
-//! are double-quoted; the lexer recognizes simple `\"` and `\\` escapes.
-//! Integer literals are ASCII decimal.
+//! are double-quoted; the lexer recognizes simple `\"`, `\\`, `\n`, `\t`
+//! escapes. Integer and float literals are ASCII decimal.
 
 use chrona_core::Error;
 
@@ -35,9 +35,21 @@ pub enum Token {
     At,
     Before,
     After,
+    // Filter / limit keywords
+    Where,
+    Limit,
+    // Comparison operators
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
     // Literals
     String(String),
     Integer(u64),
+    Float(f64),
+    Ident(String),
     // End of input
     Eof,
 }
@@ -69,8 +81,18 @@ impl Token {
             Token::At => "AT",
             Token::Before => "BEFORE",
             Token::After => "AFTER",
+            Token::Where => "WHERE",
+            Token::Limit => "LIMIT",
+            Token::Eq => "=",
+            Token::Neq => "!=",
+            Token::Gt => ">",
+            Token::Gte => ">=",
+            Token::Lt => "<",
+            Token::Lte => "<=",
             Token::String(_) => "STRING",
             Token::Integer(_) => "INTEGER",
+            Token::Float(_) => "FLOAT",
+            Token::Ident(_) => "IDENT",
             Token::Eof => "EOF",
         }
     }
@@ -102,6 +124,8 @@ fn keyword_to_token(s: &str) -> Option<Token> {
         "AT" => Token::At,
         "BEFORE" => Token::Before,
         "AFTER" => Token::After,
+        "WHERE" => Token::Where,
+        "LIMIT" => Token::Limit,
         _ => return None,
     })
 }
@@ -118,6 +142,39 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, Error> {
             i += 1;
             continue;
         }
+
+        // Comparison operators.
+        if c == b'=' {
+            out.push(Token::Eq);
+            i += 1;
+            continue;
+        }
+        if c == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+            out.push(Token::Neq);
+            i += 2;
+            continue;
+        }
+        if c == b'>' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                out.push(Token::Gte);
+                i += 2;
+            } else {
+                out.push(Token::Gt);
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'<' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+                out.push(Token::Lte);
+                i += 2;
+            } else {
+                out.push(Token::Lt);
+                i += 1;
+            }
+            continue;
+        }
+
         if c == b'"' {
             // String literal.
             let start = i + 1;
@@ -153,17 +210,40 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, Error> {
             out.push(Token::String(buf));
             continue;
         }
-        if c.is_ascii_digit() {
+        if c.is_ascii_digit() || (c == b'-' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit())
+        {
+            // Number literal — may be integer or float.
             let start = i;
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
+            if c == b'-' {
+                i += 1;
+            }
+            let mut saw_dot = false;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || (bytes[i] == b'.' && !saw_dot)) {
+                if bytes[i] == b'.' {
+                    saw_dot = true;
+                }
                 i += 1;
             }
             let s = std::str::from_utf8(&bytes[start..i])
-                .map_err(|_| Error::Query("non-UTF8 integer".into()))?;
-            let n: u64 = s
-                .parse()
-                .map_err(|_| Error::Query(format!("cannot parse integer {:?}", s)))?;
-            out.push(Token::Integer(n));
+                .map_err(|_| Error::Query("non-UTF8 number".into()))?;
+            if saw_dot {
+                let f: f64 = s
+                    .parse()
+                    .map_err(|_| Error::Query(format!("cannot parse float {:?}", s)))?;
+                out.push(Token::Float(f));
+            } else {
+                // For unsigned, reject negatives (LIMIT/HOPS must be positive).
+                if s.starts_with('-') {
+                    return Err(Error::Query(format!(
+                        "negative integer not allowed here: {}",
+                        s
+                    )));
+                }
+                let n: u64 = s
+                    .parse()
+                    .map_err(|_| Error::Query(format!("cannot parse integer {:?}", s)))?;
+                out.push(Token::Integer(n));
+            }
             continue;
         }
         if c.is_ascii_alphabetic() || c == b'_' {
@@ -176,11 +256,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, Error> {
             match keyword_to_token(word) {
                 Some(t) => out.push(t),
                 None => {
-                    return Err(Error::Query(format!(
-                        "unexpected identifier {:?}; only keywords and quoted strings \
-                         are allowed",
-                        word
-                    )));
+                    // Unknown bare identifier is kept as an Ident token. The
+                    // parser decides whether it's legal in context (e.g.
+                    // inside WHERE, yes; as a node id, no).
+                    out.push(Token::Ident(word.to_string()));
                 }
             }
             continue;
@@ -241,7 +320,52 @@ mod tests {
     }
 
     #[test]
-    fn unknown_identifier_errors() {
-        assert!(tokenize("FIND NEIGHBORS OF alice").is_err());
+    fn bare_identifier_is_ident() {
+        let toks = tokenize("FIND NEIGHBORS OF alice").unwrap();
+        assert_eq!(toks[3], Token::Ident("alice".into()));
+    }
+
+    #[test]
+    fn where_clause_tokens() {
+        let toks =
+            tokenize(r#"FIND NEIGHBORS OF "alice" WHERE confidence >= 0.8 AND type = "KNOWS""#)
+                .unwrap();
+        assert!(toks.contains(&Token::Where));
+        assert!(toks.contains(&Token::Gte));
+        assert!(toks.contains(&Token::Float(0.8)));
+        assert!(toks.contains(&Token::And));
+        assert!(toks.contains(&Token::Eq));
+    }
+
+    #[test]
+    fn limit_clause() {
+        let toks = tokenize(r#"FIND NEIGHBORS OF "alice" LIMIT 5"#).unwrap();
+        assert!(toks.contains(&Token::Limit));
+        assert!(toks.contains(&Token::Integer(5)));
+    }
+
+    #[test]
+    fn comparison_operators() {
+        let toks = tokenize("= != > >= < <=").unwrap();
+        assert_eq!(
+            toks,
+            vec![
+                Token::Eq,
+                Token::Neq,
+                Token::Gt,
+                Token::Gte,
+                Token::Lt,
+                Token::Lte,
+                Token::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn float_parsing() {
+        let toks = tokenize("0.5 1.0 0.123").unwrap();
+        assert_eq!(toks[0], Token::Float(0.5));
+        assert_eq!(toks[1], Token::Float(1.0));
+        assert_eq!(toks[2], Token::Float(0.123));
     }
 }

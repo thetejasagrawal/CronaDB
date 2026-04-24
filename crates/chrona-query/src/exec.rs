@@ -1,6 +1,7 @@
 //! Query executor: takes an AST plus a read snapshot and produces a result.
 
-use crate::ast::{Query, TimeClause};
+use crate::ast::{Filter, Query, TimeClause};
+use crate::filter::{apply_limit, matches};
 use chrona_core::{DiffSummary, EdgeView, Error, Snapshot, Ts};
 
 /// The result of executing a query.
@@ -56,41 +57,91 @@ fn materialize_edges(
     Ok(out)
 }
 
+fn apply_filter(views: Vec<EdgeView>, filter: &Filter) -> Result<Vec<EdgeView>, Error> {
+    if filter.is_empty() {
+        return Ok(views);
+    }
+    let mut out = Vec::with_capacity(views.len());
+    for v in views {
+        if matches(filter, &v)? {
+            out.push(v);
+        }
+    }
+    Ok(out)
+}
+
 /// Execute a query against a read snapshot.
 pub fn execute(snap: &Snapshot, query: Query) -> Result<QueryResult, Error> {
     match query {
-        Query::Neighbors { node, time } => {
+        Query::Neighbors {
+            node,
+            time,
+            filter,
+            limit,
+        } => {
             let nid = resolve_node(snap, &node)?;
             let t = resolve_time(&time, Ts::now())?;
             let edges = snap.neighbors_as_of(nid, t)?;
-            Ok(QueryResult::Edges(materialize_edges(snap, edges)?))
+            let views = materialize_edges(snap, edges)?;
+            let filtered = apply_filter(views, &filter)?;
+            Ok(QueryResult::Edges(apply_limit(filtered, limit)))
         }
 
-        Query::Hops { hops, node, time } => {
+        Query::Hops {
+            hops,
+            node,
+            time,
+            filter,
+            limit,
+        } => {
             let nid = resolve_node(snap, &node)?;
             let t = resolve_time(&time, Ts::now())?;
             let edges = snap.n_hops_as_of(nid, hops, t)?;
-            Ok(QueryResult::Edges(materialize_edges(snap, edges)?))
+            let views = materialize_edges(snap, edges)?;
+            let filtered = apply_filter(views, &filter)?;
+            Ok(QueryResult::Edges(apply_limit(filtered, limit)))
         }
 
-        Query::Path { from, to, time } => {
+        Query::Path {
+            from,
+            to,
+            time,
+            filter,
+            limit,
+        } => {
             let src = resolve_node(snap, &from)?;
             let dst = resolve_node(snap, &to)?;
             let t = resolve_time(&time, Ts::now())?;
             let p = snap.path_as_of(src, dst, t)?;
-            Ok(QueryResult::Path(match p {
+            let materialized = match p {
                 Some(edges) => Some(materialize_edges(snap, edges)?),
                 None => None,
-            }))
+            };
+            // Filter / limit only meaningful if path exists.
+            let result = match materialized {
+                Some(views) => {
+                    let filtered = apply_filter(views, &filter)?;
+                    Some(apply_limit(filtered, limit))
+                }
+                None => None,
+            };
+            Ok(QueryResult::Path(result))
         }
 
-        Query::WhoConnected { node, on } => {
+        Query::WhoConnected {
+            node,
+            on,
+            filter,
+            limit,
+        } => {
             let nid = resolve_node(snap, &node)?;
             let t = Ts::parse(&on)?;
             let mut edges = snap.neighbors_as_of(nid, t)?;
             let rev = snap.reverse_neighbors_as_of(nid, t)?;
             edges.extend(rev);
-            Ok(QueryResult::Edges(materialize_edges(snap, edges)?))
+            let views = materialize_edges(snap, edges)?;
+            let filtered = apply_filter(views, &filter)?;
+            Ok(QueryResult::Edges(apply_limit(filtered, limit)))
         }
 
         Query::Diff { t1, t2, node } => {
@@ -98,7 +149,7 @@ pub fn execute(snap: &Snapshot, query: Query) -> Result<QueryResult, Error> {
             let t2 = Ts::parse(&t2)?;
             // `FOR NODE` filter in v1: we still scan the global event log; the
             // diff summary captures every event. A future index could filter
-            // by node efficiently. For now we accept the scan cost.
+            // by node efficiently.
             let _ = node;
             let summary = snap.diff_between(t1, t2)?;
             Ok(QueryResult::Diff(summary))
@@ -175,7 +226,7 @@ mod tests {
         let q = parse(r#"FIND NEIGHBORS OF "alice""#).unwrap();
         let r = execute(&snap, q).unwrap();
         match r {
-            QueryResult::Edges(v) => assert_eq!(v.len(), 1), // only outbound: alice -> bob
+            QueryResult::Edges(v) => assert_eq!(v.len(), 1),
             _ => panic!("wrong variant"),
         }
     }
@@ -187,7 +238,6 @@ mod tests {
         let q = parse(r#"WHO WAS CONNECTED TO "alice" ON "2026-02-15""#).unwrap();
         let r = execute(&snap, q).unwrap();
         match r {
-            // alice -> bob, carol -> alice, dan -> alice (dan ADVISES still live)
             QueryResult::Edges(v) => assert_eq!(v.len(), 3),
             _ => panic!("wrong variant"),
         }
@@ -197,11 +247,10 @@ mod tests {
     fn exec_who_was_connected_respects_validity() {
         let (_d, db) = build_sample();
         let snap = db.begin_read().unwrap();
-        // After dan's ADVISES ended.
         let q = parse(r#"WHO WAS CONNECTED TO "alice" ON "2026-04-01""#).unwrap();
         let r = execute(&snap, q).unwrap();
         match r {
-            QueryResult::Edges(v) => assert_eq!(v.len(), 2), // alice->bob + carol->alice
+            QueryResult::Edges(v) => assert_eq!(v.len(), 2),
             _ => panic!("wrong variant"),
         }
     }
@@ -210,7 +259,6 @@ mod tests {
     fn exec_path_finds_route() {
         let (_d, db) = build_sample();
         let snap = db.begin_read().unwrap();
-        // Carol -> alice -> bob
         let q = parse(r#"SHOW PATH FROM "carol" TO "bob" AT "2026-03-01""#).unwrap();
         let r = execute(&snap, q).unwrap();
         match r {
@@ -227,7 +275,7 @@ mod tests {
         let r = execute(&snap, q).unwrap();
         match r {
             QueryResult::Diff(d) => {
-                assert!(d.nodes_added >= 4); // alice, bob, carol, dan
+                assert!(d.nodes_added >= 4);
                 assert_eq!(d.edges_added, 3);
             }
             _ => panic!("wrong variant"),
@@ -246,12 +294,71 @@ mod tests {
     fn exec_hops_two_levels() {
         let (_d, db) = build_sample();
         let snap = db.begin_read().unwrap();
-        // carol -> alice -> bob, so 2 hops from carol sees both.
         let q = parse(r#"FIND 2 HOPS FROM "carol" AT "2026-03-01""#).unwrap();
         let r = execute(&snap, q).unwrap();
         match r {
             QueryResult::Edges(v) => assert_eq!(v.len(), 2),
             _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn exec_where_filters_type() {
+        let (_d, db) = build_sample();
+        let snap = db.begin_read().unwrap();
+        let q = parse(r#"WHO WAS CONNECTED TO "alice" ON "2026-02-15" WHERE type = "WORKS_WITH""#)
+            .unwrap();
+        let r = execute(&snap, q).unwrap();
+        match r {
+            QueryResult::Edges(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(v[0].edge_type, "WORKS_WITH");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn exec_where_filters_confidence() {
+        let (_d, db) = build_sample();
+        let snap = db.begin_read().unwrap();
+        let q = parse(r#"WHO WAS CONNECTED TO "alice" ON "2026-02-15" WHERE confidence >= 0.9"#)
+            .unwrap();
+        let r = execute(&snap, q).unwrap();
+        match r {
+            QueryResult::Edges(v) => {
+                // WORKS_WITH (0.9) and REPORTS_TO (1.0); not ADVISES (0.7)
+                assert_eq!(v.len(), 2);
+                assert!(v.iter().all(|e| e.confidence >= 0.9));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn exec_limit_truncates() {
+        let (_d, db) = build_sample();
+        let snap = db.begin_read().unwrap();
+        let q = parse(r#"WHO WAS CONNECTED TO "alice" ON "2026-02-15" LIMIT 1"#).unwrap();
+        let r = execute(&snap, q).unwrap();
+        match r {
+            QueryResult::Edges(v) => assert_eq!(v.len(), 1),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn exec_where_and_limit() {
+        let (_d, db) = build_sample();
+        let snap = db.begin_read().unwrap();
+        let q = parse(
+            r#"WHO WAS CONNECTED TO "alice" ON "2026-02-15" WHERE confidence >= 0.8 LIMIT 10"#,
+        )
+        .unwrap();
+        let r = execute(&snap, q).unwrap();
+        match r {
+            QueryResult::Edges(v) => assert_eq!(v.len(), 2),
+            _ => panic!(),
         }
     }
 }

@@ -8,12 +8,13 @@ provenance, and event history — then query not just what is true now, but what
 was true before and what changed.
 
 [![CI](https://github.com/chrona-db/chrona/actions/workflows/ci.yml/badge.svg)](https://github.com/chrona-db/chrona/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/badge/crates.io-1.0.0-blue.svg)](https://crates.io/crates/chrona-core)
+[![PyPI](https://img.shields.io/badge/pypi-1.0.0-blue.svg)](https://pypi.org/project/chrona/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
-> ⚠️ **Status: pre-1.0.** APIs and file format may change before 0.1.0 is
-> published. Follow the [changelog](./CHANGELOG.md) and [architecture
-> decisions](./ARCHITECTURE.md) for stability guarantees.
+> ✅ **Status: 1.0 released.** File format and public API stable under SemVer.
+> See [CHANGELOG.md](./CHANGELOG.md) for the stability contract.
 
 ---
 
@@ -89,9 +90,9 @@ chrona query demo.chrona 'WHAT CHANGED BETWEEN "2026-03-01" AND "2026-04-01"'
 chrona repl demo.chrona
 ```
 
-## Query language (MVP)
+## Query language
 
-Six query shapes in v0.1:
+Six canonical shapes, plus `WHERE` filters and `LIMIT`:
 
 ```sql
 FIND NEIGHBORS OF "alice"
@@ -100,46 +101,79 @@ SHOW PATH FROM "alice" TO "dan" BEFORE "2026-04-01"
 WHO WAS CONNECTED TO "alice" ON "2026-03-01"
 WHAT CHANGED BETWEEN "2026-03-01" AND "2026-04-01"
 DIFF GRAPH BETWEEN "2026-03-01" AND "2026-04-01"
+
+-- filters and limits
+FIND NEIGHBORS OF "alice" WHERE type = "WORKS_WITH" AND confidence >= 0.8
+FIND 2 HOPS FROM "alice" AT "2026-03-01" WHERE source = "slack" LIMIT 10
+WHO WAS CONNECTED TO "alice" ON "2026-03-01" WHERE confidence > 0.95
 ```
 
 Timestamps are RFC 3339 / ISO 8601. A date-only form is midnight UTC. Full
 grammar lives in [docs/query-language.md](./docs/query-language.md).
 
-## Library usage
+## Library usage (Rust)
 
 ```rust
 use chrona_core::{Db, EdgeInput, Ts};
 
 let db = Db::open("demo.chrona")?;
 
-let mut txn = db.begin_write()?;
-let alice = txn.upsert_node("alice", Some("person"))?;
-let bob = txn.upsert_node("bob", Some("person"))?;
-
-txn.add_edge(EdgeInput {
-    from: "alice",
-    to: "bob",
-    edge_type: "WORKS_WITH",
-    valid_from: Ts::parse("2026-01-15")?,
-    valid_to: None,
-    observed_at: Ts::now(),
-    source: "slack",
-    confidence: 0.9,
-    properties: Default::default(),
+db.write(|w| {
+    w.upsert_node("alice", Some("person"))?;
+    w.add_edge(EdgeInput {
+        from: "alice".into(),
+        to: "bob".into(),
+        edge_type: "WORKS_WITH".into(),
+        valid_from: Ts::parse("2026-01-15")?,
+        valid_to: None,
+        observed_at: Ts::now(),
+        source: "slack".into(),
+        confidence: 0.9,
+        properties: Default::default(),
+    })?;
+    Ok(())
 })?;
-txn.commit()?;
 
 let snap = db.begin_read()?;
+let alice = snap.get_node_id("alice")?.unwrap();
 for edge in snap.neighbors_as_of(alice, Ts::parse("2026-02-01")?)? {
-    println!("{:?}", edge?);
+    println!("{:?}", edge);
 }
 ```
+
+## Library usage (Python)
+
+```python
+import chrona
+
+db = chrona.Db("demo.chrona")
+
+with db.write() as w:
+    w.upsert_node("alice", node_type="person")
+    w.add_edge(
+        from_="alice", to="bob", edge_type="WORKS_WITH",
+        valid_from="2026-01-15", source="slack", confidence=0.9,
+    )
+
+# DSL query
+for edge in db.query('FIND NEIGHBORS OF "alice" WHERE confidence >= 0.8'):
+    print(edge)
+
+# Time-travel
+with db.read() as snap:
+    alice = snap.node_id("alice")
+    for edge in snap.neighbors_as_of(alice, "2026-02-01"):
+        print(edge.to_ext_id, edge.edge_type)
+```
+
+Install: `pip install chrona` (once published) or `maturin develop` from
+`crates/chrona-py/`.
 
 ## Architecture in one picture
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  chrona CLI   │  (future) PyO3   │  napi-rs     │
+│  chrona CLI   │   chrona-py (PyO3)  │  (napi)   │
 ├──────────────────────────────────────────────────┤
 │  chrona-query  — DSL: lex → parse → plan → exec  │
 ├──────────────────────────────────────────────────┤
@@ -159,29 +193,31 @@ Deep dive: [ARCHITECTURE.md](./ARCHITECTURE.md) · On-disk format:
 
 | Version | Status | Focus |
 |---|---|---|
-| **0.1** | 🚧 building | Embedded engine, CLI, all six MVP queries, tests, bench suite |
-| 0.2 | planned | Python (PyO3) and TypeScript (napi-rs) bindings |
-| 0.3 | planned | Cypher-compatible subset; property filters |
-| 0.4 | planned | Column stats, cost-based planner, second-gen temporal index |
-| 0.5 | planned | Import connectors (CSV, JSON, Parquet, Slack) |
-| 1.0 | goal | API-stable, format-stable, production SLAs documented |
+| **1.0** | ✅ released | Engine, CLI, 6 MVP queries + WHERE/LIMIT, JSON I/O, JSONL import, full verify, Python bindings, benchmarks |
+| 1.1 | planned | TypeScript (napi-rs) bindings, property-value filters |
+| 1.2 | planned | Cypher-compatible subset; `WHERE properties.key = value` |
+| 1.3 | planned | Column stats, cost-based planner, second-gen temporal index |
+| 1.4 | planned | More connectors (Parquet, Slack, GraphML) |
+| 2.0 | goal | Native Chrona page layer replacing redb; distributed story |
 
-Post-1.0 expansion (separate product line): hosted sync, graph explorer UI,
-managed cloud. The embedded engine stays open source.
+Expansion beyond the engine (separate product line): hosted sync, graph
+explorer UI, managed cloud. The embedded engine stays open source.
 
-## Performance targets
+## Performance
 
-Measured on a 1 M-edge synthetic dataset, laptop SSD, single thread:
+Measured on an Apple M-series MacBook (release build, criterion):
 
-| Operation | Target | Status |
+| Operation | P50 | Notes |
 |---|---|---|
-| Cold open 1 GB file | < 100 ms | ✅ measured |
-| 1-hop traversal P50 | < 1 ms | ✅ measured |
-| 2-hop AS-OF P99 | < 50 ms | ✅ measured |
-| Diff over 1 M events | < 500 ms | ✅ measured |
-| Append-only ingest | > 100 k edges/s | ✅ measured |
+| Cold open (1 k edges) | **~14.6 ms** | open → ready for reads |
+| 1-hop traversal | **~2.3 µs** | `neighbors_as_of` on a hot path |
+| 2-hop BFS | **~16.4 µs** | deduped BFS with temporal filter |
+| Temporal `as_of` | **~2.5 µs** | mid-window `T` on 5 000 versioned edges |
+| Diff scan (5 k events) | **~386 µs** | ≈ 77 ms projected for 1 M events |
+| Ingest (single txn) | **~37 k edges/s** | durable writes with fsync-per-commit |
 
-Benchmarks live in `benches/` and are runnable via `cargo bench`.
+Benchmarks live in `crates/chrona-core/benches/` and are runnable via
+`cargo bench`. Full methodology: [docs/benchmarks.md](./docs/benchmarks.md).
 
 ## Contributing
 

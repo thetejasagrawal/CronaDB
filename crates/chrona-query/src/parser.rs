@@ -3,16 +3,21 @@
 //! Grammar (informal):
 //! ```text
 //! query       := neighbor_q | hop_q | path_q | whoat_q | diff_q | changed_q
-//! neighbor_q  := FIND NEIGHBORS OF string time_clause?
-//! hop_q       := FIND INT HOPS FROM string time_clause?
-//! path_q      := SHOW PATH FROM string TO string time_clause?
-//! whoat_q     := WHO WAS CONNECTED TO string ON string
+//! neighbor_q  := FIND NEIGHBORS OF string time_clause? where_clause? limit_clause?
+//! hop_q       := FIND INT HOPS FROM string time_clause? where_clause? limit_clause?
+//! path_q      := SHOW PATH FROM string TO string time_clause? where_clause? limit_clause?
+//! whoat_q     := WHO WAS CONNECTED TO string ON string where_clause? limit_clause?
 //! diff_q      := DIFF GRAPH BETWEEN string AND string (FOR NODE string)?
 //! changed_q   := WHAT CHANGED BETWEEN string AND string (FOR NODE string)?
 //! time_clause := (AT string) | (BEFORE string) | (AFTER string)
+//! where_clause := WHERE filter_term (AND filter_term)*
+//! filter_term := IDENT op literal
+//! op          := = | != | > | >= | < | <=
+//! literal     := string | integer | float
+//! limit_clause := LIMIT integer
 //! ```
 
-use crate::ast::{Query, TimeClause};
+use crate::ast::{CmpOp, Filter, FilterTerm, Literal, Query, TimeClause};
 use crate::lexer::{tokenize, Token};
 use chrona_core::Error;
 
@@ -71,6 +76,16 @@ impl Parser {
         }
     }
 
+    fn expect_ident(&mut self) -> Result<String, Error> {
+        match self.advance() {
+            Token::Ident(s) => Ok(s),
+            other => Err(Error::Query(format!(
+                "expected IDENT, got {}",
+                other.label()
+            ))),
+        }
+    }
+
     fn parse_time_clause(&mut self) -> Result<Option<TimeClause>, Error> {
         match self.peek() {
             Token::At => {
@@ -102,6 +117,74 @@ impl Parser {
         }
     }
 
+    fn parse_cmp_op(&mut self) -> Result<CmpOp, Error> {
+        Ok(match self.advance() {
+            Token::Eq => CmpOp::Eq,
+            Token::Neq => CmpOp::Neq,
+            Token::Gt => CmpOp::Gt,
+            Token::Gte => CmpOp::Gte,
+            Token::Lt => CmpOp::Lt,
+            Token::Lte => CmpOp::Lte,
+            other => {
+                return Err(Error::Query(format!(
+                    "expected comparison operator, got {}",
+                    other.label()
+                )))
+            }
+        })
+    }
+
+    fn parse_literal(&mut self) -> Result<Literal, Error> {
+        Ok(match self.advance() {
+            Token::String(s) => Literal::Str(s),
+            Token::Integer(n) => Literal::Int(n),
+            Token::Float(f) => Literal::Float(f),
+            other => {
+                return Err(Error::Query(format!(
+                    "expected literal, got {}",
+                    other.label()
+                )))
+            }
+        })
+    }
+
+    fn parse_filter(&mut self) -> Result<Filter, Error> {
+        if !matches!(self.peek(), Token::Where) {
+            return Ok(Filter::default());
+        }
+        self.advance(); // consume WHERE
+
+        let mut terms = Vec::new();
+        loop {
+            let field = self.expect_ident()?;
+            let op = self.parse_cmp_op()?;
+            let value = self.parse_literal()?;
+            terms.push(FilterTerm { field, op, value });
+
+            if !matches!(self.peek(), Token::And) {
+                break;
+            }
+            self.advance(); // consume AND
+        }
+        Ok(Filter { terms })
+    }
+
+    fn parse_limit(&mut self) -> Result<Option<u32>, Error> {
+        if !matches!(self.peek(), Token::Limit) {
+            return Ok(None);
+        }
+        self.advance();
+        let n = self.expect_integer()?;
+        if n > u32::MAX as u64 {
+            return Err(Error::Query(format!(
+                "LIMIT {} exceeds maximum {}",
+                n,
+                u32::MAX
+            )));
+        }
+        Ok(Some(n as u32))
+    }
+
     fn parse_find(&mut self) -> Result<Query, Error> {
         // Already consumed FIND. Next is either NEIGHBORS or INT.
         match self.peek() {
@@ -110,7 +193,14 @@ impl Parser {
                 self.expect(&Token::Of)?;
                 let node = self.expect_string()?;
                 let time = self.parse_time_clause()?;
-                Ok(Query::Neighbors { node, time })
+                let filter = self.parse_filter()?;
+                let limit = self.parse_limit()?;
+                Ok(Query::Neighbors {
+                    node,
+                    time,
+                    filter,
+                    limit,
+                })
             }
             Token::Integer(_) => {
                 let n = self.expect_integer()?;
@@ -125,10 +215,14 @@ impl Parser {
                 self.expect(&Token::From)?;
                 let node = self.expect_string()?;
                 let time = self.parse_time_clause()?;
+                let filter = self.parse_filter()?;
+                let limit = self.parse_limit()?;
                 Ok(Query::Hops {
                     hops: n as u8,
                     node,
                     time,
+                    filter,
+                    limit,
                 })
             }
             other => Err(Error::Query(format!(
@@ -146,7 +240,15 @@ impl Parser {
         self.expect(&Token::To)?;
         let to = self.expect_string()?;
         let time = self.parse_time_clause()?;
-        Ok(Query::Path { from, to, time })
+        let filter = self.parse_filter()?;
+        let limit = self.parse_limit()?;
+        Ok(Query::Path {
+            from,
+            to,
+            time,
+            filter,
+            limit,
+        })
     }
 
     fn parse_who(&mut self) -> Result<Query, Error> {
@@ -156,7 +258,14 @@ impl Parser {
         let node = self.expect_string()?;
         self.expect(&Token::On)?;
         let on = self.expect_string()?;
-        Ok(Query::WhoConnected { node, on })
+        let filter = self.parse_filter()?;
+        let limit = self.parse_limit()?;
+        Ok(Query::WhoConnected {
+            node,
+            on,
+            filter,
+            limit,
+        })
     }
 
     fn parse_diff(&mut self) -> Result<Query, Error> {
@@ -217,25 +326,19 @@ mod tests {
     #[test]
     fn parse_neighbors() {
         let q = parse("FIND NEIGHBORS OF \"alice\"").unwrap();
-        assert_eq!(
-            q,
-            Query::Neighbors {
-                node: "alice".into(),
-                time: None,
-            }
-        );
+        assert!(matches!(q, Query::Neighbors { ref node, .. } if node == "alice"));
     }
 
     #[test]
     fn parse_neighbors_with_at() {
         let q = parse("FIND NEIGHBORS OF \"alice\" AT \"2026-01-01\"").unwrap();
-        assert_eq!(
+        assert!(matches!(
             q,
             Query::Neighbors {
-                node: "alice".into(),
-                time: Some(TimeClause::At("2026-01-01".into())),
+                time: Some(TimeClause::At(_)),
+                ..
             }
-        );
+        ));
     }
 
     #[test]
@@ -243,7 +346,7 @@ mod tests {
         let q = parse("FIND 2 HOPS FROM \"x\" AT \"2026-02-01\"").unwrap();
         assert!(matches!(
             q,
-            Query::Hops { hops: 2, node, time: Some(TimeClause::At(_)) } if node == "x"
+            Query::Hops { hops: 2, ref node, time: Some(TimeClause::At(_)), .. } if node == "x"
         ));
     }
 
@@ -252,7 +355,7 @@ mod tests {
         let q = parse("SHOW PATH FROM \"a\" TO \"b\" BEFORE \"2026-03-10\"").unwrap();
         assert!(matches!(
             q,
-            Query::Path { from, to, time: Some(TimeClause::Before(_)) }
+            Query::Path { ref from, ref to, time: Some(TimeClause::Before(_)), .. }
                 if from == "a" && to == "b"
         ));
     }
@@ -262,7 +365,7 @@ mod tests {
         let q = parse("WHO WAS CONNECTED TO \"Acme\" ON \"2026-03-01\"").unwrap();
         assert!(matches!(
             q,
-            Query::WhoConnected { node, on } if node == "Acme" && on == "2026-03-01"
+            Query::WhoConnected { ref node, ref on, .. } if node == "Acme" && on == "2026-03-01"
         ));
     }
 
@@ -285,6 +388,54 @@ mod tests {
     fn parse_changed() {
         let q = parse("WHAT CHANGED BETWEEN \"2026-03-01\" AND \"2026-04-01\"").unwrap();
         assert!(matches!(q, Query::Changed { .. }));
+    }
+
+    #[test]
+    fn parse_where_single_term() {
+        let q = parse(r#"FIND NEIGHBORS OF "alice" WHERE type = "KNOWS""#).unwrap();
+        if let Query::Neighbors { filter, .. } = q {
+            assert_eq!(filter.terms.len(), 1);
+            assert_eq!(filter.terms[0].field, "type");
+            assert_eq!(filter.terms[0].op, CmpOp::Eq);
+            assert_eq!(filter.terms[0].value, Literal::Str("KNOWS".into()));
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn parse_where_multiple_terms() {
+        let q = parse(r#"FIND NEIGHBORS OF "alice" WHERE type = "KNOWS" AND confidence >= 0.8"#)
+            .unwrap();
+        if let Query::Neighbors { filter, .. } = q {
+            assert_eq!(filter.terms.len(), 2);
+            assert_eq!(filter.terms[1].field, "confidence");
+            assert_eq!(filter.terms[1].op, CmpOp::Gte);
+            assert_eq!(filter.terms[1].value, Literal::Float(0.8));
+        } else {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn parse_limit() {
+        let q = parse(r#"FIND NEIGHBORS OF "alice" LIMIT 5"#).unwrap();
+        if let Query::Neighbors { limit, .. } = q {
+            assert_eq!(limit, Some(5));
+        } else {
+            panic!();
+        }
+    }
+
+    #[test]
+    fn parse_where_and_limit() {
+        let q = parse(r#"FIND 2 HOPS FROM "x" WHERE source = "slack" LIMIT 10"#).unwrap();
+        if let Query::Hops { filter, limit, .. } = q {
+            assert_eq!(filter.terms.len(), 1);
+            assert_eq!(limit, Some(10));
+        } else {
+            panic!();
+        }
     }
 
     #[test]

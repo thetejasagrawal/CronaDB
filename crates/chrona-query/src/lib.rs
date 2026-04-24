@@ -20,11 +20,12 @@
 
 pub mod ast;
 pub mod exec;
+pub mod filter;
 pub mod format;
 pub mod lexer;
 pub mod parser;
 
-pub use ast::{Query, TimeClause};
+pub use ast::{CmpOp, Filter, FilterTerm, Literal, Query, TimeClause};
 pub use exec::{execute, QueryResult};
-pub use format::render;
+pub use format::{render, render_json};
 pub use parser::parse;

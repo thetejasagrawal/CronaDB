@@ -1,8 +1,8 @@
 //! `chrona` — the Chrona command-line tool.
 
-use chrona_core::{Db, EdgeInput, Ts};
-use chrona_query::{execute, parse, render};
-use clap::{Parser, Subcommand};
+use chrona_core::{Db, EdgeInput, PropValue, Props, Ts};
+use chrona_query::{execute, parse, render, render_json};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -31,30 +31,70 @@ enum Cmd {
         path: PathBuf,
         /// The query string.
         query: String,
+        /// Emit results as single-line JSON.
+        #[arg(long)]
+        json: bool,
     },
-    /// Import edges from a CSV file.
+    /// Import edges from a file. Format is autodetected from the extension.
     ///
-    /// Expected columns (in order):
-    /// from, to, edge_type, valid_from, valid_to (or ""), observed_at,
-    /// source, confidence.
+    /// CSV columns (in order): from, to, edge_type, valid_from, valid_to,
+    /// observed_at, source, confidence.
+    ///
+    /// JSONL (one object per line): keys `from`, `to`, `edge_type`,
+    /// `valid_from`, `valid_to`, `observed_at`, `source`, `confidence`,
+    /// `properties`.
     Import {
         /// Path to the database file.
         path: PathBuf,
-        /// CSV file to import.
+        /// Source file (CSV or JSONL).
         #[arg(long)]
-        csv: PathBuf,
+        file: PathBuf,
+        /// Force a specific format instead of detecting by extension.
+        #[arg(long, value_enum)]
+        format: Option<ImportFmt>,
     },
     /// Print database statistics.
     Stats {
         /// Path to the database file.
         path: PathBuf,
+        /// Emit stats as JSON.
+        #[arg(long)]
+        json: bool,
     },
-    /// Verify database integrity.
+    /// Verify database integrity against FORMAT.md §8.
     Verify {
         /// Path to the database file.
         path: PathBuf,
     },
-    /// Dump every record as human-readable text.
+    /// Alias for verify.
+    Fsck {
+        /// Path to the database file.
+        path: PathBuf,
+    },
+    /// List every node.
+    Nodes {
+        /// Path to the database file.
+        path: PathBuf,
+        /// Emit as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List every edge.
+    Edges {
+        /// Path to the database file.
+        path: PathBuf,
+        /// Emit as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Walk an edge's revision chain backwards to the original observation.
+    History {
+        /// Path to the database file.
+        path: PathBuf,
+        /// Starting edge id (numeric).
+        edge_id: u64,
+    },
+    /// Dump every event as human-readable text.
     Dump {
         /// Path to the database file.
         path: PathBuf,
@@ -66,9 +106,13 @@ enum Cmd {
     },
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ImportFmt {
+    Csv,
+    Jsonl,
+}
+
 fn main() -> ExitCode {
-    // Initialize tracing for user-visible warnings. Keep output minimal unless
-    // CHRONA_TRACE is set.
     let filter = std::env::var("CHRONA_TRACE").unwrap_or_else(|_| "warn".into());
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -78,10 +122,13 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let r = match cli.cmd {
         Cmd::Init { path } => cmd_init(path),
-        Cmd::Query { path, query } => cmd_query(path, query),
-        Cmd::Import { path, csv } => cmd_import(path, csv),
-        Cmd::Stats { path } => cmd_stats(path),
-        Cmd::Verify { path } => cmd_verify(path),
+        Cmd::Query { path, query, json } => cmd_query(path, query, json),
+        Cmd::Import { path, file, format } => cmd_import(path, file, format),
+        Cmd::Stats { path, json } => cmd_stats(path, json),
+        Cmd::Verify { path } | Cmd::Fsck { path } => cmd_verify(path),
+        Cmd::Nodes { path, json } => cmd_nodes(path, json),
+        Cmd::Edges { path, json } => cmd_edges(path, json),
+        Cmd::History { path, edge_id } => cmd_history(path, edge_id),
         Cmd::Dump { path } => cmd_dump(path),
         Cmd::Repl { path } => cmd_repl(path),
     };
@@ -103,143 +150,186 @@ fn cmd_init(path: PathBuf) -> anyhow_like::Result<()> {
     Ok(())
 }
 
-fn cmd_query(path: PathBuf, query: String) -> anyhow_like::Result<()> {
+fn cmd_query(path: PathBuf, query: String, json: bool) -> anyhow_like::Result<()> {
     let db = Db::open(&path)?;
     let snap = db.begin_read()?;
     let ast = parse(&query)?;
     let result = execute(&snap, ast)?;
-    print!("{}", render(&result));
+    if json {
+        print!("{}", render_json(&result));
+    } else {
+        print!("{}", render(&result));
+    }
     Ok(())
 }
 
-fn cmd_stats(path: PathBuf) -> anyhow_like::Result<()> {
+fn cmd_stats(path: PathBuf, json: bool) -> anyhow_like::Result<()> {
     let db = Db::open(&path)?;
     let snap = db.begin_read()?;
     let s = snap.stats()?;
-    println!("Database: {}", path.display());
-    println!("  nodes:   {}", s.node_count);
-    println!("  edges:   {}", s.edge_count);
-    println!("  events:  {}", s.event_count);
-    println!("  strings: {}", s.string_count);
+    if json {
+        println!(
+            "{{\"path\":\"{}\",\"nodes\":{},\"edges\":{},\"events\":{},\"strings\":{}}}",
+            path.display()
+                .to_string()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\""),
+            s.node_count,
+            s.edge_count,
+            s.event_count,
+            s.string_count
+        );
+    } else {
+        println!("Database: {}", path.display());
+        println!("  nodes:   {}", s.node_count);
+        println!("  edges:   {}", s.edge_count);
+        println!("  events:  {}", s.event_count);
+        println!("  strings: {}", s.string_count);
+    }
     Ok(())
 }
 
 fn cmd_verify(path: PathBuf) -> anyhow_like::Result<()> {
     let db = Db::open(&path)?;
     let snap = db.begin_read()?;
-    let stats = snap.stats()?;
-    // Basic invariant check: every edge's endpoints exist.
-    // Full verification per FORMAT.md §8 is a more involved operation; this
-    // is the v0.1 subset.
+    let report = snap.verify()?;
     println!("Verifying {}...", path.display());
-    println!("  open:           OK (format v1)");
-    println!("  nodes present:  {}", stats.node_count);
-    println!("  edges present:  {}", stats.edge_count);
-    println!("  events present: {}", stats.event_count);
-    println!("All checks passed.");
-    Ok(())
-}
-
-fn cmd_import(path: PathBuf, csv: PathBuf) -> anyhow_like::Result<()> {
-    let db = Db::open(&path)?;
-    let content = std::fs::read_to_string(&csv)?;
-
-    // Detect optional header row.
-    let first_line = content.lines().next().unwrap_or("").trim();
-    let has_header = first_line.starts_with("from,") || first_line.starts_with("\"from\"");
-
-    let mut count = 0usize;
-    let mut errors: Vec<String> = Vec::new();
-
-    db.write(|w| {
-        for (idx, line) in content.lines().enumerate() {
-            if idx == 0 && has_header {
-                continue;
-            }
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            match parse_csv_line(line) {
-                Ok(input) => match w.add_edge(input) {
-                    Ok(_) => count += 1,
-                    Err(e) => errors.push(format!("row {}: {}", idx + 1, e)),
-                },
-                Err(e) => errors.push(format!("row {}: {}", idx + 1, e)),
-            }
-        }
+    for line in &report.lines {
+        println!("  {}", line);
+    }
+    if report.errors.is_empty() {
+        println!("All checks passed.");
         Ok(())
-    })?;
+    } else {
+        for e in &report.errors {
+            eprintln!("  [FAIL] {}", e);
+        }
+        Err(format!("{} error(s) found", report.errors.len()).into())
+    }
+}
 
-    println!("Imported {} edges", count);
-    if !errors.is_empty() {
-        eprintln!("{} error(s):", errors.len());
-        for e in errors.iter().take(10) {
-            eprintln!("  {}", e);
+fn cmd_nodes(path: PathBuf, json: bool) -> anyhow_like::Result<()> {
+    let db = Db::open(&path)?;
+    let snap = db.begin_read()?;
+    let nodes = snap.all_nodes()?;
+    if json {
+        print!("[");
+        let mut first = true;
+        for n in &nodes {
+            if !first {
+                print!(",");
+            }
+            first = false;
+            let type_name = match n.type_id {
+                Some(id) => snap.resolve_string(id).ok(),
+                None => None,
+            };
+            print!(
+                "{{\"id\":{},\"ext_id\":{:?},\"type\":{},\"created_at\":{:?}}}",
+                n.id.raw(),
+                n.ext_id,
+                match type_name {
+                    Some(t) => format!("{:?}", t),
+                    None => "null".to_string(),
+                },
+                n.created_at.to_rfc3339()
+            );
+        }
+        println!("]");
+    } else {
+        for n in &nodes {
+            let type_name = match n.type_id {
+                Some(id) => snap.resolve_string(id).ok(),
+                None => None,
+            };
+            println!(
+                "{:<6} {:<20} type={:<15} created={}",
+                n.id.to_string(),
+                n.ext_id,
+                type_name.as_deref().unwrap_or("-"),
+                n.created_at
+            );
         }
     }
     Ok(())
 }
 
-fn parse_csv_line(line: &str) -> anyhow_like::Result<EdgeInput> {
-    let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-    if parts.len() < 3 {
-        return Err(format!(
-            "expected at least 3 columns (from,to,edge_type), got {}",
-            parts.len()
-        )
-        .into());
-    }
-    let from = unquote(parts[0]).to_string();
-    let to = unquote(parts[1]).to_string();
-    let edge_type = unquote(parts[2]).to_string();
-
-    let valid_from = match parts.get(3) {
-        Some(s) if !s.is_empty() => Ts::parse(unquote(s))?,
-        _ => Ts::now(),
-    };
-    let valid_to = match parts.get(4) {
-        Some(s) if !s.is_empty() => Some(Ts::parse(unquote(s))?),
-        _ => None,
-    };
-    let observed_at = match parts.get(5) {
-        Some(s) if !s.is_empty() => Ts::parse(unquote(s))?,
-        _ => valid_from,
-    };
-    let source = parts
-        .get(6)
-        .map(|s| unquote(s).to_string())
-        .unwrap_or_default();
-    let confidence = match parts.get(7) {
-        Some(s) if !s.is_empty() => {
-            let c: f32 = unquote(s)
-                .parse()
-                .map_err(|e: std::num::ParseFloatError| format!("bad confidence: {}", e))?;
-            c
+fn cmd_edges(path: PathBuf, json: bool) -> anyhow_like::Result<()> {
+    let db = Db::open(&path)?;
+    let snap = db.begin_read()?;
+    let views = snap.all_edges_view()?;
+    if json {
+        print!("[");
+        let mut first = true;
+        for v in &views {
+            if !first {
+                print!(",");
+            }
+            first = false;
+            print!(
+                "{{\"id\":{},\"from\":{:?},\"to\":{:?},\"type\":{:?},\"valid_from\":{:?},\
+                 \"valid_to\":{},\"source\":{:?},\"confidence\":{:.4}}}",
+                v.id.raw(),
+                v.from_ext_id,
+                v.to_ext_id,
+                v.edge_type,
+                v.valid_from.to_rfc3339(),
+                match v.valid_to {
+                    Some(t) => format!("{:?}", t.to_rfc3339()),
+                    None => "null".into(),
+                },
+                v.source,
+                v.confidence
+            );
         }
-        _ => 1.0,
-    };
-
-    Ok(EdgeInput {
-        from,
-        to,
-        edge_type,
-        valid_from,
-        valid_to,
-        observed_at,
-        source,
-        confidence,
-        properties: Default::default(),
-    })
+        println!("]");
+    } else {
+        for v in &views {
+            println!(
+                "{:<6} {:<12} -[{}]-> {:<12} valid=[{}..{}) src={} conf={:.2}",
+                v.id.to_string(),
+                v.from_ext_id,
+                v.edge_type,
+                v.to_ext_id,
+                v.valid_from,
+                v.valid_to
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| "open".into()),
+                if v.source.is_empty() { "-" } else { &v.source },
+                v.confidence
+            );
+        }
+    }
+    Ok(())
 }
 
-fn unquote(s: &str) -> &str {
-    let s = s.trim();
-    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
-        &s[1..s.len() - 1]
-    } else {
-        s
+fn cmd_history(path: PathBuf, edge_id: u64) -> anyhow_like::Result<()> {
+    let db = Db::open(&path)?;
+    let snap = db.begin_read()?;
+    let start = chrona_core::EdgeId::from_raw(edge_id);
+    let chain = snap.revision_chain(start)?;
+    if chain.is_empty() {
+        return Err(format!("edge {} not found", edge_id).into());
     }
+    for (i, e) in chain.iter().enumerate() {
+        let view = snap.view_edge(e)?;
+        println!(
+            "{}[{}] {:<10} -[{}]-> {:<10}  valid_from={}  src={}  conf={:.2}",
+            if i == 0 { "→ " } else { "  " },
+            e.id,
+            view.from_ext_id,
+            view.edge_type,
+            view.to_ext_id,
+            view.valid_from,
+            if view.source.is_empty() {
+                "-"
+            } else {
+                &view.source
+            },
+            view.confidence,
+        );
+    }
+    Ok(())
 }
 
 fn cmd_dump(path: PathBuf) -> anyhow_like::Result<()> {
@@ -281,6 +371,8 @@ fn cmd_repl(path: PathBuf) -> anyhow_like::Result<()> {
                 println!("         WHO WAS CONNECTED TO \"id\" ON \"YYYY-MM-DD\"");
                 println!("         DIFF GRAPH BETWEEN \"...\" AND \"...\"");
                 println!("         WHAT CHANGED BETWEEN \"...\" AND \"...\"");
+                println!("filters: ... WHERE type = \"X\" AND confidence >= 0.8");
+                println!("limits:  ... LIMIT n");
                 println!("commands: .stats  .quit");
             }
             ".stats" => {
@@ -301,6 +393,412 @@ fn cmd_repl(path: PathBuf) -> anyhow_like::Result<()> {
         }
     }
     Ok(())
+}
+
+// ---- Import ----
+
+fn cmd_import(path: PathBuf, file: PathBuf, format: Option<ImportFmt>) -> anyhow_like::Result<()> {
+    let detected = format.unwrap_or_else(|| detect_format(&file));
+    match detected {
+        ImportFmt::Csv => import_csv(path, file),
+        ImportFmt::Jsonl => import_jsonl(path, file),
+    }
+}
+
+fn detect_format(file: &std::path::Path) -> ImportFmt {
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "jsonl" | "ndjson" | "json" => ImportFmt::Jsonl,
+        _ => ImportFmt::Csv,
+    }
+}
+
+fn import_csv(path: PathBuf, csv: PathBuf) -> anyhow_like::Result<()> {
+    let db = Db::open(&path)?;
+    let content = std::fs::read_to_string(&csv)?;
+
+    let first_line = content.lines().next().unwrap_or("").trim();
+    let has_header = first_line.starts_with("from,") || first_line.starts_with("\"from\"");
+
+    let mut count = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    db.write(|w| {
+        for (idx, line) in content.lines().enumerate() {
+            if idx == 0 && has_header {
+                continue;
+            }
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match parse_csv_line(line) {
+                Ok(input) => match w.add_edge(input) {
+                    Ok(_) => count += 1,
+                    Err(e) => errors.push(format!("row {}: {}", idx + 1, e)),
+                },
+                Err(e) => errors.push(format!("row {}: {}", idx + 1, e)),
+            }
+        }
+        Ok(())
+    })?;
+
+    println!("Imported {} edges (csv)", count);
+    report_errors(&errors);
+    Ok(())
+}
+
+fn import_jsonl(path: PathBuf, file: PathBuf) -> anyhow_like::Result<()> {
+    let db = Db::open(&path)?;
+    let content = std::fs::read_to_string(&file)?;
+
+    let mut count = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    db.write(|w| {
+        for (idx, line) in content.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match parse_jsonl_line(line) {
+                Ok(input) => match w.add_edge(input) {
+                    Ok(_) => count += 1,
+                    Err(e) => errors.push(format!("line {}: {}", idx + 1, e)),
+                },
+                Err(e) => errors.push(format!("line {}: {}", idx + 1, e)),
+            }
+        }
+        Ok(())
+    })?;
+
+    println!("Imported {} edges (jsonl)", count);
+    report_errors(&errors);
+    Ok(())
+}
+
+fn report_errors(errors: &[String]) {
+    if !errors.is_empty() {
+        eprintln!("{} error(s):", errors.len());
+        for e in errors.iter().take(10) {
+            eprintln!("  {}", e);
+        }
+    }
+}
+
+fn parse_csv_line(line: &str) -> anyhow_like::Result<EdgeInput> {
+    let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+    if parts.len() < 3 {
+        return Err(format!(
+            "expected at least 3 columns (from,to,edge_type), got {}",
+            parts.len()
+        )
+        .into());
+    }
+    let from = unquote(parts[0]).to_string();
+    let to = unquote(parts[1]).to_string();
+    let edge_type = unquote(parts[2]).to_string();
+
+    let valid_from = match parts.get(3) {
+        Some(s) if !s.is_empty() => Ts::parse(unquote(s))?,
+        _ => Ts::now(),
+    };
+    let valid_to = match parts.get(4) {
+        Some(s) if !s.is_empty() => Some(Ts::parse(unquote(s))?),
+        _ => None,
+    };
+    let observed_at = match parts.get(5) {
+        Some(s) if !s.is_empty() => Ts::parse(unquote(s))?,
+        _ => valid_from,
+    };
+    let source = parts
+        .get(6)
+        .map(|s| unquote(s).to_string())
+        .unwrap_or_default();
+    let confidence = match parts.get(7) {
+        Some(s) if !s.is_empty() => unquote(s)
+            .parse::<f32>()
+            .map_err(|e| format!("bad confidence: {}", e))?,
+        _ => 1.0,
+    };
+
+    Ok(EdgeInput {
+        from,
+        to,
+        edge_type,
+        valid_from,
+        valid_to,
+        observed_at,
+        source,
+        confidence,
+        properties: Default::default(),
+    })
+}
+
+fn parse_jsonl_line(line: &str) -> anyhow_like::Result<EdgeInput> {
+    // We keep dependencies minimal — this is a small hand-written JSON parser
+    // for flat objects. It does not handle nested structures in non-`properties`
+    // fields and accepts only the exact shape described in the Import docs.
+    let mut p = json::Parser::new(line);
+    let obj = p.parse_object()?;
+
+    let from = obj.get_string("from").ok_or("missing 'from'")?;
+    let to = obj.get_string("to").ok_or("missing 'to'")?;
+    let edge_type = obj.get_string("edge_type").ok_or("missing 'edge_type'")?;
+
+    let valid_from = match obj.get_string("valid_from") {
+        Some(s) if !s.is_empty() => Ts::parse(&s)?,
+        _ => Ts::now(),
+    };
+    let valid_to = match obj.get_string("valid_to") {
+        Some(s) if !s.is_empty() => Some(Ts::parse(&s)?),
+        _ => None,
+    };
+    let observed_at = match obj.get_string("observed_at") {
+        Some(s) if !s.is_empty() => Ts::parse(&s)?,
+        _ => valid_from,
+    };
+    let source = obj.get_string("source").unwrap_or_default();
+    let confidence = obj
+        .get_number("confidence")
+        .map(|v| v as f32)
+        .unwrap_or(1.0);
+
+    let mut properties = Props::new();
+    if let Some(obj_props) = obj.get_object("properties") {
+        for (k, v) in obj_props.entries() {
+            let pv = match v {
+                json::Value::Null => PropValue::Null,
+                json::Value::Bool(b) => PropValue::Bool(*b),
+                json::Value::Number(n) => {
+                    if n.fract() == 0.0 && *n >= i64::MIN as f64 && *n <= i64::MAX as f64 {
+                        PropValue::Int(*n as i64)
+                    } else {
+                        PropValue::Float(*n)
+                    }
+                }
+                json::Value::String(s) => PropValue::String(s.clone()),
+                json::Value::Object(_) => continue, // skip nested
+            };
+            properties.insert(k.clone(), pv);
+        }
+    }
+
+    Ok(EdgeInput {
+        from: from.to_string(),
+        to: to.to_string(),
+        edge_type: edge_type.to_string(),
+        valid_from,
+        valid_to,
+        observed_at,
+        source,
+        confidence,
+        properties,
+    })
+}
+
+fn unquote(s: &str) -> &str {
+    let s = s.trim();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
+// ---- Tiny JSON parser (for JSONL import only) ----
+
+mod json {
+    use super::anyhow_like::BoxError;
+
+    #[derive(Debug, Clone)]
+    pub enum Value {
+        Null,
+        Bool(bool),
+        Number(f64),
+        String(String),
+        Object(Object),
+    }
+
+    #[derive(Debug, Clone, Default)]
+    pub struct Object {
+        pub fields: Vec<(String, Value)>,
+    }
+
+    impl Object {
+        pub fn get(&self, key: &str) -> Option<&Value> {
+            self.fields.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+        }
+        pub fn get_string(&self, key: &str) -> Option<String> {
+            match self.get(key) {
+                Some(Value::String(s)) => Some(s.clone()),
+                _ => None,
+            }
+        }
+        pub fn get_number(&self, key: &str) -> Option<f64> {
+            match self.get(key) {
+                Some(Value::Number(n)) => Some(*n),
+                _ => None,
+            }
+        }
+        pub fn get_object(&self, key: &str) -> Option<&Object> {
+            match self.get(key) {
+                Some(Value::Object(o)) => Some(o),
+                _ => None,
+            }
+        }
+        pub fn entries(&self) -> impl Iterator<Item = (&String, &Value)> {
+            self.fields.iter().map(|(k, v)| (k, v))
+        }
+    }
+
+    pub struct Parser<'a> {
+        s: &'a str,
+        pos: usize,
+    }
+
+    impl<'a> Parser<'a> {
+        pub fn new(s: &'a str) -> Self {
+            Self { s, pos: 0 }
+        }
+
+        fn peek(&self) -> Option<u8> {
+            self.s.as_bytes().get(self.pos).copied()
+        }
+
+        fn bump(&mut self) -> Option<u8> {
+            let c = self.peek()?;
+            self.pos += 1;
+            Some(c)
+        }
+
+        fn skip_ws(&mut self) {
+            while matches!(self.peek(), Some(c) if c.is_ascii_whitespace()) {
+                self.pos += 1;
+            }
+        }
+
+        fn expect(&mut self, c: u8) -> Result<(), BoxError> {
+            self.skip_ws();
+            match self.bump() {
+                Some(x) if x == c => Ok(()),
+                Some(x) => Err(format!("expected {:?}, got {:?}", c as char, x as char).into()),
+                None => Err(format!("expected {:?}, got end", c as char).into()),
+            }
+        }
+
+        pub fn parse_object(&mut self) -> Result<Object, BoxError> {
+            self.skip_ws();
+            self.expect(b'{')?;
+            let mut fields = Vec::new();
+            self.skip_ws();
+            if self.peek() == Some(b'}') {
+                self.bump();
+                return Ok(Object { fields });
+            }
+            loop {
+                self.skip_ws();
+                let key = self.parse_string()?;
+                self.skip_ws();
+                self.expect(b':')?;
+                let value = self.parse_value()?;
+                fields.push((key, value));
+                self.skip_ws();
+                match self.bump() {
+                    Some(b',') => continue,
+                    Some(b'}') => break,
+                    Some(c) => return Err(format!("unexpected {:?}", c as char).into()),
+                    None => return Err("unterminated object".into()),
+                }
+            }
+            Ok(Object { fields })
+        }
+
+        fn parse_value(&mut self) -> Result<Value, BoxError> {
+            self.skip_ws();
+            match self.peek() {
+                Some(b'"') => Ok(Value::String(self.parse_string()?)),
+                Some(b'{') => Ok(Value::Object(self.parse_object()?)),
+                Some(b't') | Some(b'f') => self.parse_bool(),
+                Some(b'n') => self.parse_null(),
+                Some(c) if c.is_ascii_digit() || c == b'-' => self.parse_number(),
+                Some(c) => Err(format!("unexpected {:?}", c as char).into()),
+                None => Err("unexpected end".into()),
+            }
+        }
+
+        fn parse_string(&mut self) -> Result<String, BoxError> {
+            self.expect(b'"')?;
+            let mut out = String::new();
+            loop {
+                match self.bump() {
+                    Some(b'"') => return Ok(out),
+                    Some(b'\\') => match self.bump() {
+                        Some(b'"') => out.push('"'),
+                        Some(b'\\') => out.push('\\'),
+                        Some(b'/') => out.push('/'),
+                        Some(b'n') => out.push('\n'),
+                        Some(b'r') => out.push('\r'),
+                        Some(b't') => out.push('\t'),
+                        Some(b'u') => {
+                            let mut hex = [0u8; 4];
+                            for h in &mut hex {
+                                *h = self.bump().ok_or("short unicode escape")?;
+                            }
+                            let s = std::str::from_utf8(&hex).map_err(|e| e.to_string())?;
+                            let code = u32::from_str_radix(s, 16).map_err(|e| e.to_string())?;
+                            if let Some(c) = char::from_u32(code) {
+                                out.push(c);
+                            }
+                        }
+                        Some(c) => return Err(format!("bad escape \\{}", c as char).into()),
+                        None => return Err("short escape".into()),
+                    },
+                    Some(c) => out.push(c as char),
+                    None => return Err("unterminated string".into()),
+                }
+            }
+        }
+
+        fn parse_number(&mut self) -> Result<Value, BoxError> {
+            let start = self.pos;
+            if self.peek() == Some(b'-') {
+                self.bump();
+            }
+            while matches!(self.peek(), Some(c) if c.is_ascii_digit() || c == b'.' || c == b'e' || c == b'E' || c == b'+' || c == b'-')
+            {
+                self.bump();
+            }
+            let slice = &self.s[start..self.pos];
+            let n: f64 = slice.parse().map_err(|_| "bad number")?;
+            Ok(Value::Number(n))
+        }
+
+        fn parse_bool(&mut self) -> Result<Value, BoxError> {
+            if self.s[self.pos..].starts_with("true") {
+                self.pos += 4;
+                Ok(Value::Bool(true))
+            } else if self.s[self.pos..].starts_with("false") {
+                self.pos += 5;
+                Ok(Value::Bool(false))
+            } else {
+                Err("bad boolean".into())
+            }
+        }
+
+        fn parse_null(&mut self) -> Result<Value, BoxError> {
+            if self.s[self.pos..].starts_with("null") {
+                self.pos += 4;
+                Ok(Value::Null)
+            } else {
+                Err("expected null".into())
+            }
+        }
+    }
 }
 
 /// A tiny error-unification module so `?` works over both `chrona_core::Error`

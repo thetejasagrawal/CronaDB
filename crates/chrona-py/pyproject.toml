@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "chrona"
+version = "1.0.0"
+description = "Embedded temporal graph database — SQLite for graphs that change over time"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text = "MIT OR Apache-2.0" }
+authors = [
+    { name = "Chrona Contributors" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Database :: Database Engines/Servers",
+]
+
+[project.urls]
+Homepage = "https://github.com/chrona-db/chrona"
+Documentation = "https://github.com/chrona-db/chrona/tree/main/docs"
+Repository = "https://github.com/chrona-db/chrona"
+
+[tool.maturin]
+module-name = "chrona"
+features = ["pyo3/extension-module"]
+strip = true

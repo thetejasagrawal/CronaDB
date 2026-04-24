@@ -31,6 +31,7 @@ impl Db {
     /// Open an existing database at `path`, or create a new empty one.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
+        let _span = tracing::info_span!("chrona.open", path = %path.display()).entered();
         let db = storage::open_or_create(path)?;
         Ok(Db {
             inner: Arc::new(DbInner {
@@ -45,6 +46,7 @@ impl Db {
     /// Multiple read snapshots may exist concurrently. A snapshot is unaffected
     /// by writes that commit after it was taken.
     pub fn begin_read(&self) -> Result<Snapshot> {
+        let _span = tracing::debug_span!("chrona.txn.read").entered();
         let txn = self.inner.db.begin_read()?;
         Ok(Snapshot { txn })
     }
@@ -54,6 +56,7 @@ impl Db {
     /// Only one write transaction can exist at a time. This call blocks if
     /// another writer is active.
     pub fn begin_write(&self) -> Result<WriteTxn> {
+        let _span = tracing::debug_span!("chrona.txn.write").entered();
         let txn = self.inner.db.begin_write()?;
         Ok(WriteTxn { txn: Some(txn) })
     }
@@ -221,6 +224,79 @@ impl Snapshot {
             event_count: event_count(&self.txn)?,
             string_count: string_count(&self.txn)?,
         })
+    }
+
+    /// Run a full integrity check against the database.
+    ///
+    /// Returns a [`VerifyReport`] with one line per check performed, plus a
+    /// list of any errors. A clean report is an empty errors list.
+    pub fn verify(&self) -> Result<crate::verify::VerifyReport> {
+        crate::verify::verify(&self.txn)
+    }
+
+    /// Return every node in the database, sorted by internal id.
+    pub fn all_nodes(&self) -> Result<Vec<Node>> {
+        let table = match self.txn.open_table(tables::NODES) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut out = Vec::new();
+        for entry in table.iter()? {
+            let (k, v) = entry?;
+            let id = NodeId::from_raw(k.value());
+            let node = Node::decode(id, v.value())?;
+            out.push(node);
+        }
+        Ok(out)
+    }
+
+    /// Return every edge in the database as a resolved `EdgeView`.
+    pub fn all_edges_view(&self) -> Result<Vec<EdgeView>> {
+        let table = match self.txn.open_table(tables::EDGES) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut out = Vec::new();
+        for entry in table.iter()? {
+            let (k, v) = entry?;
+            let id = EdgeId::from_raw(k.value());
+            let edge = Edge::decode(id, v.value())?;
+            out.push(self.view_edge(&edge)?);
+        }
+        Ok(out)
+    }
+
+    /// Walk the revision chain starting at `edge_id`, following `supersedes`
+    /// backwards to the original observation.
+    ///
+    /// The returned vector starts with `edge_id` itself and ends with the
+    /// oldest edge in the chain. Returns an empty vec if `edge_id` does not
+    /// exist. Loops are detected and cut off defensively.
+    pub fn revision_chain(&self, edge_id: EdgeId) -> Result<Vec<Edge>> {
+        let mut out = Vec::new();
+        let mut seen: std::collections::HashSet<EdgeId> = std::collections::HashSet::new();
+        let mut cur = Some(edge_id);
+        while let Some(id) = cur {
+            if !seen.insert(id) {
+                // Cycle defense — shouldn't happen but don't hang.
+                break;
+            }
+            match self.get_edge(id)? {
+                Some(e) => {
+                    cur = e.supersedes;
+                    out.push(e);
+                }
+                None => {
+                    if out.is_empty() {
+                        return Ok(Vec::new());
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Produce a resolved `EdgeView` from an `Edge`, looking up string ids.
@@ -521,6 +597,7 @@ impl WriteTxn {
     /// Commit the transaction, making its writes durable and visible to
     /// future readers.
     pub fn commit(mut self) -> Result<()> {
+        let _span = tracing::debug_span!("chrona.commit").entered();
         if let Some(txn) = self.txn.take() {
             txn.commit()?;
         }

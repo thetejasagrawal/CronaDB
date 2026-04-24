@@ -47,6 +47,7 @@ pub mod props;
 pub mod storage;
 pub mod temporal;
 pub mod time;
+pub mod verify;
 
 pub use db::{Db, Snapshot, Stats, WriteTxn};
 pub use error::{Error, Result};
@@ -55,3 +56,4 @@ pub use id::{EdgeId, EventId, NodeId, StringId};
 pub use props::{PropValue, Props};
 pub use temporal::{DiffEntry, DiffSummary, EventKind, EventRecord};
 pub use time::Ts;
+pub use verify::VerifyReport;

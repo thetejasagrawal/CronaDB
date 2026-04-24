@@ -5,9 +5,14 @@ members = [
     "crates/chrona-query",
     "crates/chrona-cli",
 ]
+# chrona-py is a Python-native extension crate and is excluded from the default
+# workspace build. Build it explicitly with:
+#   cd crates/chrona-py && maturin develop
+# See crates/chrona-py/README.md for details.
+exclude = ["crates/chrona-py"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -21,8 +26,8 @@ categories = ["database-implementations", "data-structures"]
 
 [workspace.dependencies]
 # Internal
-chrona-core = { path = "crates/chrona-core", version = "0.1.0" }
-chrona-query = { path = "crates/chrona-query", version = "0.1.0" }
+chrona-core = { path = "crates/chrona-core", version = "1.0.0" }
+chrona-query = { path = "crates/chrona-query", version = "1.0.0" }
 
 # Storage
 redb = "2.2"

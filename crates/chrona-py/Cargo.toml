@@ -1,0 +1,18 @@
+[package]
+name = "chrona-py"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chrona-db/chrona"
+description = "Python bindings for Chrona — SQLite for graphs that change over time"
+readme = "README.md"
+
+[lib]
+name = "chrona"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chrona-core = { path = "../chrona-core", version = "1.0.0" }
+chrona-query = { path = "../chrona-query", version = "1.0.0" }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py37"] }
