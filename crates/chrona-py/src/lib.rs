@@ -61,7 +61,18 @@ fn props_from_py(py_props: Option<&Bound<'_, PyDict>>) -> PyResult<Props> {
 
 // ---------------- Edge ----------------
 
-/// A live edge view returned by queries.
+/// A live edge view returned by a query or a snapshot read.
+///
+/// Frozen, immutable. Fields:
+/// - `id` (int): the edge's internal id.
+/// - `from_ext_id`, `to_ext_id` (str): the external ids of the endpoints.
+/// - `edge_type` (str).
+/// - `valid_from`, `valid_to` (str RFC 3339; `valid_to` may be `None` for
+///   open-ended edges).
+/// - `observed_at` (str RFC 3339): when the system learned about it.
+/// - `source` (str): provenance label.
+/// - `confidence` (float in [0.0, 1.0]).
+/// - `supersedes` (int or `None`): id of the edge this one revises.
 #[pyclass(module = "chrona", frozen)]
 #[derive(Clone)]
 struct Edge {
@@ -122,6 +133,12 @@ impl Edge {
 // ---------------- Node ----------------
 
 /// A node view.
+///
+/// Frozen, immutable. Fields:
+/// - `id` (int): internal id.
+/// - `ext_id` (str): the external id you used when upserting.
+/// - `node_type` (str or `None`).
+/// - `created_at` (str RFC 3339).
 #[pyclass(module = "chrona", frozen)]
 #[derive(Clone)]
 struct Node {
@@ -137,7 +154,17 @@ struct Node {
 
 // ---------------- Snapshot ----------------
 
-/// A read-only snapshot of the database.
+/// A read-only point-in-time view of the database.
+///
+/// Snapshots are cheap and can run concurrently with a writer. Use as a
+/// context manager:
+///
+/// ```python
+/// with db.read() as snap:
+///     alice = snap.node_id("alice")
+///     for edge in snap.neighbors_as_of(alice, "2026-02-01"):
+///         print(edge)
+/// ```
 #[pyclass(module = "chrona", unsendable)]
 struct Snapshot {
     inner: RefCell<Option<CoreSnapshot>>,
@@ -268,7 +295,16 @@ impl Snapshot {
 
 // ---------------- WriteTxn ----------------
 
-/// An open write transaction.
+/// An open write transaction. One writer at a time per database.
+///
+/// Use as a context manager — the transaction commits on `__exit__`:
+///
+/// ```python
+/// with db.write() as w:
+///     w.upsert_node("alice", node_type="person")
+///     w.add_edge(from_="alice", to="bob", edge_type="WORKS_WITH",
+///                valid_from="2026-01-15", source="slack", confidence=0.9)
+/// ```
 #[pyclass(module = "chrona", unsendable)]
 struct WriteTxn {
     inner: RefCell<Option<CoreWriteTxn>>,

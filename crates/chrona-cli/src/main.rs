@@ -1,4 +1,4 @@
-//! `chrona` — the Chrona command-line tool.
+//! `chrona` — the CronaDB command-line tool.
 
 use chrona_core::{Db, EdgeInput, PropValue, Props, Ts};
 use chrona_query::{execute, parse, render, render_json};
@@ -6,6 +6,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+mod demo;
+mod style;
+mod tui;
 
 #[derive(Parser)]
 #[command(
@@ -104,6 +108,27 @@ enum Cmd {
         /// Path to the database file.
         path: PathBuf,
     },
+    /// Seed a fresh database with a small demonstration graph.
+    ///
+    /// Creates a tiny startup-org graph spanning January–April 2026 with a
+    /// reorganization, a job change, and a project launch — everything you
+    /// need to feel the temporal model. After seeding, prints suggested
+    /// queries to try. Refuses to overwrite an existing file.
+    Demo {
+        /// Path to the new database file.
+        path: PathBuf,
+        /// Open the TUI immediately after seeding.
+        #[arg(long)]
+        tui: bool,
+    },
+    /// Open an interactive terminal UI for browsing the database.
+    ///
+    /// Lets you pick a node, see its neighborhood at any point in time, and
+    /// run queries live. Time-travel with `+`/`-` (day) or `[`/`]` (week).
+    Tui {
+        /// Path to the database file.
+        path: PathBuf,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -131,6 +156,8 @@ fn main() -> ExitCode {
         Cmd::History { path, edge_id } => cmd_history(path, edge_id),
         Cmd::Dump { path } => cmd_dump(path),
         Cmd::Repl { path } => cmd_repl(path),
+        Cmd::Demo { path, tui } => cmd_demo(path, tui),
+        Cmd::Tui { path } => tui::run(path),
     };
     match r {
         Ok(()) => ExitCode::SUCCESS,
@@ -146,8 +173,82 @@ fn cmd_init(path: PathBuf) -> anyhow_like::Result<()> {
         return Err(format!("refusing to overwrite existing file: {}", path.display()).into());
     }
     Db::open(&path)?;
-    println!("Created {}", path.display());
+    println!(
+        "{} created {}",
+        style::ok_tag(),
+        style::bold(&path.display().to_string())
+    );
+    println!();
+    println!("  next steps:");
+    println!(
+        "    chrona import {} --file edges.csv     # bulk import",
+        path.display()
+    );
+    println!(
+        "    chrona query  {} 'FIND NEIGHBORS OF \"alice\"'",
+        path.display()
+    );
+    println!(
+        "    chrona tui    {}                        # interactive UI",
+        path.display()
+    );
+    println!();
+    println!(
+        "  or run {} for a fully-populated demo database.",
+        style::bold("chrona demo demo.chrona --tui")
+    );
     Ok(())
+}
+
+fn cmd_demo(path: PathBuf, open_tui: bool) -> anyhow_like::Result<()> {
+    if path.exists() {
+        return Err(format!("refusing to overwrite existing file: {}", path.display()).into());
+    }
+    println!(
+        "{} seeding demo database at {}...",
+        style::info_tag(),
+        path.display()
+    );
+    let db = Db::open(&path)?;
+    demo::seed(&db)?;
+    let snap = db.begin_read()?;
+    let stats = snap.stats()?;
+    drop(snap);
+    drop(db);
+
+    println!(
+        "{} {} nodes · {} edges · {} events",
+        style::ok_tag(),
+        stats.node_count,
+        stats.edge_count,
+        stats.event_count
+    );
+    println!();
+    println!("  {}", style::bold("Try these:"));
+    for (label, q) in demo::suggested_queries() {
+        println!("    {}", style::dim(&format!("# {}", label)));
+        println!("    chrona query {} {}", path.display(), shell_quote(q));
+    }
+    println!();
+    println!(
+        "  Open the interactive UI: {}",
+        style::bold(&format!("chrona tui {}", path.display()))
+    );
+
+    if open_tui {
+        println!();
+        tui::run(path)?;
+    }
+    Ok(())
+}
+
+fn shell_quote(s: &str) -> String {
+    // Minimal: wrap in single quotes, escape any embedded single quotes.
+    if s.contains('\'') {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    } else {
+        format!("'{}'", s)
+    }
 }
 
 fn cmd_query(path: PathBuf, query: String, json: bool) -> anyhow_like::Result<()> {
@@ -193,16 +294,16 @@ fn cmd_verify(path: PathBuf) -> anyhow_like::Result<()> {
     let db = Db::open(&path)?;
     let snap = db.begin_read()?;
     let report = snap.verify()?;
-    println!("Verifying {}...", path.display());
+    println!("{} verifying {}...", style::info_tag(), path.display());
     for line in &report.lines {
-        println!("  {}", line);
+        println!("  {} {}", style::ok_tag(), line);
     }
     if report.errors.is_empty() {
-        println!("All checks passed.");
+        println!("{} all checks passed.", style::ok_tag());
         Ok(())
     } else {
         for e in &report.errors {
-            eprintln!("  [FAIL] {}", e);
+            eprintln!("  {} {}", style::fail_tag(), e);
         }
         Err(format!("{} error(s) found", report.errors.len()).into())
     }
@@ -220,10 +321,13 @@ fn cmd_nodes(path: PathBuf, json: bool) -> anyhow_like::Result<()> {
                 print!(",");
             }
             first = false;
-            let type_name = match n.type_id {
-                Some(id) => snap.resolve_string(id).ok(),
-                None => None,
-            };
+            // resolve_string can fail if the type_id points at a missing or
+            // corrupted string entry; surface that as a tagged sentinel so
+            // downstream tools can spot and report it instead of seeing `null`.
+            let type_name = n.type_id.map(|id| {
+                snap.resolve_string(id)
+                    .unwrap_or_else(|e| format!("<unresolved string {}: {}>", id.raw(), e))
+            });
             print!(
                 "{{\"id\":{},\"ext_id\":{:?},\"type\":{},\"created_at\":{:?}}}",
                 n.id.raw(),
@@ -238,10 +342,10 @@ fn cmd_nodes(path: PathBuf, json: bool) -> anyhow_like::Result<()> {
         println!("]");
     } else {
         for n in &nodes {
-            let type_name = match n.type_id {
-                Some(id) => snap.resolve_string(id).ok(),
-                None => None,
-            };
+            let type_name = n.type_id.map(|id| {
+                snap.resolve_string(id)
+                    .unwrap_or_else(|e| format!("<unresolved string {}: {}>", id.raw(), e))
+            });
             println!(
                 "{:<6} {:<20} type={:<15} created={}",
                 n.id.to_string(),

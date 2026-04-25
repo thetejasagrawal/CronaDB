@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`chrona tui <path>`** — interactive terminal UI built on `ratatui`. Pick a
+  node from the left pane, see its neighborhood in the right pane, and
+  scroll the time cursor (`+/-` for days, `[`/`]` for weeks) to watch the
+  graph change in place. Includes an inline query box (`:` to focus, `Enter`
+  to run) and a help overlay (`?`).
+- **`chrona demo <path>`** — seeds a small startup-org graph spanning four
+  months of 2026 with a reorganization, a job change, and a project launch.
+  After seeding, prints a curated list of suggested queries to copy-paste.
+  Supports `--tui` to launch directly into the TUI.
+- Color and `[ ok ]` / `[fail]` / `[info]` tags for `chrona init`, `chrona
+  demo`, and `chrona verify` output. Color is suppressed when stdout is not
+  a terminal or when `NO_COLOR` is set.
 - Project banner and icon (`Assets/CronaDB_banner.png`,
   `Assets/CronaDB_logo_icon.png`); README leads with the banner.
 - Launch-ready README rewrite: navigation strip, "use it for" section with
@@ -20,11 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CITATION.cff` so users can cite CronaDB from a paper or post.
 - Polished `chrona-py/README.md` (now the PyPI landing page) with banner,
   tabular API reference, and links back to the main repo's design docs.
+- Richer Python class docstrings on `Edge`, `Node`, `Snapshot`, `WriteTxn`
+  (`help(chrona.Edge)` is now actually useful).
 - GitHub PR template, issue templates (bug, feature, docs), and a private
   security advisory link in the issue chooser.
 - Dependabot configuration for Cargo and GitHub Actions, grouped weekly.
 - `python-release.yml` workflow to build abi3-py37 wheels and publish to PyPI
   via trusted publishing on tag push.
+
+### Fixed
+
+- `chrona nodes` no longer silently swallows string-resolution errors.
+  A failed `resolve_string` now surfaces as `<unresolved string {id}: {err}>`
+  instead of being printed as `null`, so corrupt-string-table bugs are
+  immediately visible.
 
 ### Changed
 

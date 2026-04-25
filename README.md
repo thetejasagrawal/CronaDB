@@ -96,9 +96,52 @@ documented below.
 > **Note:** crates.io and PyPI publication is in flight. Until then, install
 > from this repo (Rust) or `maturin develop` from `crates/chrona-py/` (Python).
 
-## 60-second tour
+## Try it in 30 seconds
 
 ```bash
+chrona demo demo.chrona --tui
+```
+
+That's it. `chrona demo` seeds a small startup-org graph that spans four
+months, includes a reorganization, a job change, and a project launch. The
+`--tui` flag drops you straight into the interactive UI:
+
+```
+╭ CronaDB · demo.chrona · 10 nodes · 20 edges · 33 events · time: now (live) ─╮
+│                                                                              │
+│ ╭ Nodes (10) ────────╮ ╭ Edges from "alice" @ now (4) ─────────────────────╮ │
+│ │ ► alice    person  │ │ → bob       WORKS_WITH  [2026-01-25..)  conf=0.85 │ │
+│ │   bob      person  │ │ → carol     WORKS_WITH  [2026-01-25..)  conf=0.85 │ │
+│ │   carol    person  │ │ → beta_labs WORKS_AT    [2026-03-16..)  conf=0.95 │ │
+│ │   dan      person  │ │ → pluto     WORKS_ON    [2026-04-01..)  conf=0.99 │ │
+│ │   eve      person  │ │                                                   │ │
+│ │   frank    person  │ │                                                   │ │
+│ │   acme     org     │ │                                                   │ │
+│ │   beta_labs org    │ │                                                   │ │
+│ ╰────────────────────╯ ╰───────────────────────────────────────────────────╯ │
+│ ╭ Query ──────────────────────────────────────────────────────────────────╮  │
+│ │   press ":" to type a query (e.g. FIND NEIGHBORS OF "alice")            │  │
+│ ╰─────────────────────────────────────────────────────────────────────────╯  │
+│ ╭ Results ────────────────────────────────────────────────────────────────╮  │
+│ │ (no results yet — run a query above with `:`)                           │  │
+│ ╰─────────────────────────────────────────────────────────────────────────╯  │
+│  NORMAL   j/k navigate · : query · +/- day · [/] week · n now · ? help · q   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Move time backwards with `-` (one day) or `[` (one week) and watch the
+neighborhood change in place — alice's edges shift as she moves between
+companies, carol's reporting line flips after the reorg.
+
+**Keybindings:** `j/k` (or `↑/↓`) navigate · `:` query · `+`/`-` day ·
+`[`/`]` week · `n` reset to now · `r` reload · `?` help · `q` quit.
+
+## 60-second CLI tour
+
+If you'd rather stay on the command line:
+
+```bash
+# Or build your own from scratch
 chrona init demo.chrona
 chrona import demo.chrona --file people.csv --format csv
 
@@ -111,17 +154,14 @@ chrona query demo.chrona 'WHO WAS CONNECTED TO "alice" ON "2026-01-20"'
 # How a 2-hop neighborhood looked at a past time
 chrona query demo.chrona 'FIND 2 HOPS FROM "alice" AT "2026-03-01"'
 
-# What changed across a window
-chrona query demo.chrona 'WHAT CHANGED BETWEEN "2026-03-01" AND "2026-04-01"'
-
 # Filter and limit
 chrona query demo.chrona \
   'FIND NEIGHBORS OF "alice" WHERE source = "slack" AND confidence >= 0.8 LIMIT 20'
 
 # JSON output for pipelines
-chrona query demo.chrona --json 'WHAT CHANGED BETWEEN "2026-01-01" AND "2026-04-01"'
+chrona query demo.chrona --json 'FIND NEIGHBORS OF "alice"'
 
-# Open a REPL
+# Open the line-by-line REPL
 chrona repl demo.chrona
 ```
 
