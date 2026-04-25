@@ -30,7 +30,7 @@ chrona-core = { path = "crates/chrona-core", version = "1.0.0" }
 chrona-query = { path = "crates/chrona-query", version = "1.0.0" }
 
 # Storage
-redb = "2.2"
+redb = "4.1"
 
 # Serialization
 ciborium = "0.2"
