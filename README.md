@@ -4,10 +4,9 @@
 
 <p align="center"><b>SQLite for graphs that change over time.</b></p>
 
-CronaDB is an open-source embedded temporal graph database. One file, no
-server, time-travel built in. Store changing relationships with full validity
-windows, provenance, and event history — then query not just what is true now,
-but what was true before and what changed.
+<p align="center">
+  An embedded temporal graph database. One file. No server. Time-travel built in.
+</p>
 
 <p align="center">
   <a href="https://github.com/thetejasagrawal/CronaDB/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/thetejasagrawal/CronaDB/actions/workflows/ci.yml/badge.svg"></a>
@@ -15,23 +14,28 @@ but what was true before and what changed.
   <a href="https://pypi.org/project/chrona/"><img alt="PyPI" src="https://img.shields.io/badge/pypi-1.0.0-blue.svg"></a>
   <a href="LICENSE-MIT"><img alt="License" src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg"></a>
   <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-1.75%2B-orange.svg"></a>
+  <a href="https://github.com/thetejasagrawal/CronaDB/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/thetejasagrawal/CronaDB?style=social"></a>
 </p>
 
-> ✅ **Status: 1.0 released.** File format and public API stable under SemVer.
-> See [CHANGELOG.md](./CHANGELOG.md) for the stability contract.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#60-second-tour">60-second tour</a> ·
+  <a href="#why-cronadb">Why</a> ·
+  <a href="#how-it-compares">Compare</a> ·
+  <a href="./ARCHITECTURE.md">Architecture</a> ·
+  <a href="https://github.com/thetejasagrawal/CronaDB/discussions">Discuss</a>
+</p>
 
 ---
 
-## What it does
+## What is it
+
+CronaDB stores changing relationships as a graph, but every edge carries when
+it became true, when it stopped being true, where you learned about it from,
+and how confident you are in it. Then you query the graph not just as it is
+now, but **as it was at any moment in the past**.
 
 ```
-$ chrona init memory.chrona
-Created memory.chrona
-
-$ chrona query memory.chrona 'FIND NEIGHBORS OF "alice"'
-bob        WORKS_WITH  valid=[2026-01-15..)  src=slack  conf=0.90
-carol      REPORTS_TO  valid=[2026-02-01..)  src=hr     conf=1.00
-
 $ chrona query memory.chrona 'WHO WAS CONNECTED TO "alice" ON "2026-01-20"'
 bob        WORKS_WITH  valid=[2026-01-15..)  src=slack  conf=0.90
 
@@ -40,82 +44,93 @@ $ chrona query memory.chrona 'WHAT CHANGED BETWEEN "2026-02-01" AND "2026-04-01"
 - dan   -[ADVISES]->    alice   (invalidated 2026-03-15)
 ```
 
-One file on disk. No server. Sub-second responses on laptop workloads. Python
-bindings ship today; TypeScript bindings are planned for 1.1.
+One file on disk. Embedded in your process — no server, no network. Reads in
+microseconds, writes are durable on commit.
 
-## Why another graph database?
+## Why CronaDB
 
-Because most graph databases are either too heavy (Neo4j, TigerGraph) or treat
-time as an afterthought. Chrona is designed around one belief: **time and
-provenance are not optional metadata — they are part of the graph itself.**
+Most graph databases either need a cluster to run (Neo4j, TigerGraph,
+Memgraph) or treat time as an afterthought you bolt on with timestamp columns.
 
-Every edge in Chrona carries:
-- `valid_from` / `valid_to` — when the relationship is true
-- `observed_at` — when you learned about it
-- `source` — where it came from
-- `confidence` — how trustworthy it is
-- `supersedes` — revision chain
+CronaDB makes time first-class. Every edge has:
 
-That turns graphs from a static structure into a living system you can rewind.
+| Field | Meaning |
+|---|---|
+| `valid_from` / `valid_to` | The window the relationship is true in the world |
+| `observed_at` | When you (the system) learned about it |
+| `source` | Where it came from |
+| `confidence` | How much you trust it |
+| `supersedes` | Pointer to the previous revision |
+
+That single move — making the temporal envelope part of the data model
+instead of an extra table — turns the graph into a system you can rewind,
+audit, and explain.
+
+## Use it for
+
+- **Agent / LLM memory.** An agent's beliefs change over time. CronaDB
+  natively stores "I thought X at time T1, then I learned Y at time T2" with
+  a revision chain you can walk for explainability.
+- **Knowledge graphs from messy sources.** Slack scrapes, email parsers, and
+  CRM exports disagree. Track who said what, when, with what confidence —
+  reconcile later instead of upfront.
+- **Audit and compliance.** Anything where "who reported to whom on date D"
+  needs to be answerable months later, exactly.
+- **Dependency / provenance tracking.** Service ownership, infra topology,
+  data lineage — graphs whose edges actually do change, but whose history
+  matters.
+- **Temporal feature stores.** Joins like "what was the user's friend graph
+  at the moment of this prediction" without a Lambda-architecture rebuild.
 
 ## Install
 
 ```bash
-# From source (only option today)
 git clone https://github.com/thetejasagrawal/CronaDB
 cd CronaDB
 cargo install --path crates/chrona-cli
 ```
 
-Once published to crates.io:
+That gives you the `chrona` CLI. The Rust library and Python package are
+documented below.
+
+> **Note:** crates.io and PyPI publication is in flight. Until then, install
+> from this repo (Rust) or `maturin develop` from `crates/chrona-py/` (Python).
+
+## 60-second tour
 
 ```bash
-cargo install chrona-cli
-```
-
-## Quickstart (3 minutes)
-
-```bash
-# Create a new database
 chrona init demo.chrona
+chrona import demo.chrona --file people.csv --format csv
 
-# Import some relationships
-chrona import demo.chrona --csv people.csv
-
-# Ask simple questions
+# What's true right now
 chrona query demo.chrona 'FIND NEIGHBORS OF "alice"'
-chrona query demo.chrona 'FIND 2 HOPS FROM "alice" AT "2026-03-01"'
-chrona query demo.chrona 'SHOW PATH FROM "alice" TO "dan" BEFORE "2026-04-01"'
 
-# See what changed
+# What was true on a specific day
+chrona query demo.chrona 'WHO WAS CONNECTED TO "alice" ON "2026-01-20"'
+
+# How a 2-hop neighborhood looked at a past time
+chrona query demo.chrona 'FIND 2 HOPS FROM "alice" AT "2026-03-01"'
+
+# What changed across a window
 chrona query demo.chrona 'WHAT CHANGED BETWEEN "2026-03-01" AND "2026-04-01"'
+
+# Filter and limit
+chrona query demo.chrona \
+  'FIND NEIGHBORS OF "alice" WHERE source = "slack" AND confidence >= 0.8 LIMIT 20'
+
+# JSON output for pipelines
+chrona query demo.chrona --json 'WHAT CHANGED BETWEEN "2026-01-01" AND "2026-04-01"'
 
 # Open a REPL
 chrona repl demo.chrona
 ```
 
-## Query language
+Full CLI reference: `chrona --help`. Full grammar:
+[docs/query-language.md](./docs/query-language.md).
 
-Six canonical shapes, plus `WHERE` filters and `LIMIT`:
+## Library usage
 
-```sql
-FIND NEIGHBORS OF "alice"
-FIND 2 HOPS FROM "alice" AT "2026-03-01"
-SHOW PATH FROM "alice" TO "dan" BEFORE "2026-04-01"
-WHO WAS CONNECTED TO "alice" ON "2026-03-01"
-WHAT CHANGED BETWEEN "2026-03-01" AND "2026-04-01"
-DIFF GRAPH BETWEEN "2026-03-01" AND "2026-04-01"
-
--- filters and limits
-FIND NEIGHBORS OF "alice" WHERE type = "WORKS_WITH" AND confidence >= 0.8
-FIND 2 HOPS FROM "alice" AT "2026-03-01" WHERE source = "slack" LIMIT 10
-WHO WAS CONNECTED TO "alice" ON "2026-03-01" WHERE confidence > 0.95
-```
-
-Timestamps are RFC 3339 / ISO 8601. A date-only form is midnight UTC. Full
-grammar lives in [docs/query-language.md](./docs/query-language.md).
-
-## Library usage (Rust)
+### Rust
 
 ```rust
 use chrona_core::{Db, EdgeInput, Ts};
@@ -145,7 +160,7 @@ for edge in snap.neighbors_as_of(alice, Ts::parse("2026-02-01")?)? {
 }
 ```
 
-## Library usage (Python)
+### Python
 
 ```python
 import chrona
@@ -163,17 +178,46 @@ with db.write() as w:
 for edge in db.query('FIND NEIGHBORS OF "alice" WHERE confidence >= 0.8'):
     print(edge)
 
-# Time-travel
+# Time-travel through the read API
 with db.read() as snap:
     alice = snap.node_id("alice")
     for edge in snap.neighbors_as_of(alice, "2026-02-01"):
         print(edge.to_ext_id, edge.edge_type)
 ```
 
-Install: `pip install chrona` (once published) or `maturin develop` from
-`crates/chrona-py/`.
+Python wheels are `abi3-py37` — one wheel works on Python 3.7+.
 
-## Architecture in one picture
+## How it compares
+
+| | CronaDB | Neo4j / Memgraph | SQLite | DuckDB | Datomic |
+|---|---|---|---|---|---|
+| Embedded, no server | ✅ | ❌ | ✅ | ✅ | ❌ (peer) |
+| First-class graph model | ✅ | ✅ | ❌ | ❌ | ✅ |
+| First-class temporal model | ✅ | bolt-on | bolt-on | bolt-on | ✅ |
+| Single file on disk | ✅ | ❌ | ✅ | ✅ | ❌ |
+| Open source | ✅ MIT/Apache | ✅ GPL/comm. | ✅ PD | ✅ MIT | ❌ |
+| Written in | Rust | Java/C++ | C | C++ | Clojure/JVM |
+
+The shortest pitch: **if SQLite and Datomic had a baby that ran in your
+process and remembered everything, you'd get CronaDB.**
+
+## Performance
+
+Measured on an Apple M-series MacBook (release build, criterion v0.5):
+
+| Operation | P50 | Notes |
+|---|---|---|
+| Cold open (1 k edges) | **~14.6 ms** | open → ready for reads |
+| 1-hop traversal | **~2.3 µs** | `neighbors_as_of` on a hot path |
+| 2-hop BFS | **~16.4 µs** | deduped BFS with temporal filter |
+| Temporal `as_of` | **~2.5 µs** | mid-window `T` on 5 000 versioned edges |
+| Diff scan (5 k events) | **~386 µs** | ≈ 77 ms projected for 1 M events |
+| Ingest (single txn) | **~37 k edges/s** | durable writes, fsync per commit |
+
+Benchmarks live in `crates/chrona-core/benches/` — run them yourself with
+`cargo bench`. Methodology: [docs/benchmarks.md](./docs/benchmarks.md).
+
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -190,48 +234,80 @@ Install: `pip install chrona` (once published) or `maturin develop` from
 └──────────────────────────────────────────────────┘
 ```
 
-Deep dive: [ARCHITECTURE.md](./ARCHITECTURE.md) · On-disk format:
+Core ideas: an append-only event log is the source of truth; the live state
+graph and temporal indexes are derivable projections; readers and the writer
+never block each other (snapshot isolation via redb's MVCC).
+
+Deep dive: [ARCHITECTURE.md](./ARCHITECTURE.md). On-disk byte format:
 [FORMAT.md](./FORMAT.md).
 
-## Project status and roadmap
+## FAQ
 
-| Version | Status | Focus |
-|---|---|---|
-| **1.0** | ✅ released | Engine, CLI, 6 MVP queries + WHERE/LIMIT, JSON I/O, JSONL import, full verify, Python bindings, benchmarks |
-| 1.1 | planned | TypeScript (napi-rs) bindings, property-value filters |
-| 1.2 | planned | Cypher-compatible subset; `WHERE properties.key = value` |
-| 1.3 | planned | Column stats, cost-based planner, second-gen temporal index |
-| 1.4 | planned | More connectors (Parquet, Slack, GraphML) |
-| 2.0 | goal | Native Chrona page layer replacing redb; distributed story |
+**Is the file format stable?** Yes — version 1, locked at 1.0. Files written
+by any 1.x release will be readable by every 1.x release. See the stability
+contract in [CHANGELOG.md](./CHANGELOG.md).
 
-Expansion beyond the engine (separate product line): hosted sync, graph
-explorer UI, managed cloud. The embedded engine stays open source.
+**Can multiple processes write to the same file?** No — single-writer
+semantics, just like SQLite without WAL mode. Concurrent readers are fine
+and cheap (snapshot isolation).
 
-## Performance
+**Why redb under the hood?** Because the goal is "SQLite reliability for
+graphs," and redb gives us a battle-tested single-file MVCC B-tree without
+unsafe code. The plan is to keep the storage layer pluggable in case that
+calculus changes.
 
-Measured on an Apple M-series MacBook (release build, criterion):
+**How does this differ from a Neo4j with timestamp properties?** Neo4j (or
+any graph DB without native temporal) makes you reinvent every query: you
+filter by timestamp, you reason about overlapping intervals, you build your
+own bitemporal layer. CronaDB does that work in the engine — `AT "t"`,
+`BEFORE "t"`, `WHO WAS CONNECTED ... ON "t"` are first-class operators with
+indexes built for them.
 
-| Operation | P50 | Notes |
-|---|---|---|
-| Cold open (1 k edges) | **~14.6 ms** | open → ready for reads |
-| 1-hop traversal | **~2.3 µs** | `neighbors_as_of` on a hot path |
-| 2-hop BFS | **~16.4 µs** | deduped BFS with temporal filter |
-| Temporal `as_of` | **~2.5 µs** | mid-window `T` on 5 000 versioned edges |
-| Diff scan (5 k events) | **~386 µs** | ≈ 77 ms projected for 1 M events |
-| Ingest (single txn) | **~37 k edges/s** | durable writes with fsync-per-commit |
+**Is there a query language other than the DSL?** Today, no — only the DSL
+and the typed Rust/Python APIs. The DSL is intentionally tiny (six query
+shapes) because it's easier to ship a small, complete language than a big,
+ambiguous one. Future versions will grow it under the same SemVer contract.
 
-Benchmarks live in `crates/chrona-core/benches/` and are runnable via
-`cargo bench`. Full methodology: [docs/benchmarks.md](./docs/benchmarks.md).
+**Can I use it from JavaScript / Go / Java?** Not yet directly. Anything
+with FFI can call `chrona-core` via the C ABI (`extern "C"`); native
+bindings for JS (napi-rs) are the next planned binding.
+
+**License?** Dual MIT / Apache-2.0. Use it commercially, vendor it, fork it.
+
+## Examples
+
+Runnable end-to-end demos under `examples/`:
+
+- [`examples/agent_memory`](./examples/agent_memory) — an LLM agent revising
+  beliefs about the world and querying them at different points in time.
+- [`examples/dependency_tracking`](./examples/dependency_tracking) —
+  service-dependency topology that evolves; query "who depended on the
+  payments service before the incident."
+
+Run either with `cargo run --example <name> -p chrona-core`.
 
 ## Contributing
 
-Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Areas where
-help is especially valued:
+Issues and PRs welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before
+opening a feature PR — CronaDB holds scope intentionally.
 
-- Query language extensions (while scope-holding discipline is maintained)
+Areas where help is especially valued:
+
 - Benchmark datasets and adversarial workloads
 - Docs and tutorials
-- Language bindings (Python, Node, Go)
+- Language bindings (JavaScript via napi-rs, Go, Java)
+- Connectors (Parquet, GraphML, OpenLineage)
+
+## Get involved
+
+- ⭐  **[Star the repo](https://github.com/thetejasagrawal/CronaDB)** — it's
+  the cheapest signal that this is worth pushing forward.
+- 💬  **[Discussions](https://github.com/thetejasagrawal/CronaDB/discussions)**
+  for ideas, use cases, and questions.
+- 🐛  **[Issues](https://github.com/thetejasagrawal/CronaDB/issues/new/choose)**
+  for bugs and feature requests.
+- 🔒  **[Security advisories](https://github.com/thetejasagrawal/CronaDB/security/advisories/new)**
+  for anything that shouldn't be public.
 
 ## License
 
@@ -240,19 +316,18 @@ Dual-licensed under either:
 - Apache License, Version 2.0 ([LICENSE-APACHE](./LICENSE-APACHE))
 - MIT license ([LICENSE-MIT](./LICENSE-MIT))
 
-at your option.
+at your option. Contributions are licensed under the same terms unless
+explicitly stated otherwise.
 
-Contributions are licensed under the same terms unless explicitly stated
-otherwise.
+## Design principles
 
-## Design & philosophy
+CronaDB is built around a small set of beliefs documented in
+[ARCHITECTURE.md](./ARCHITECTURE.md):
 
-Chrona is built around a small set of beliefs documented in
-[ARCHITECTURE.md](./ARCHITECTURE.md), including:
-
-- Time is first-class. Every relationship carries validity.
-- The event log is the source of truth. The state graph is derivable.
-- Edges are immutable. Revisions happen by appending, never overwriting.
-- Do one thing well. No distributed story in 1.x.
+- **Time is first-class.** Every relationship carries validity.
+- **The event log is the source of truth.** The state graph is derivable.
+- **Edges are immutable.** Revisions append, never overwrite.
+- **Do one thing well.** Embedded, single-file, single-writer. No
+  distributed story in 1.x.
 
 If those resonate, you'll probably like working on this.

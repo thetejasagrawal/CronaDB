@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Project banner and icon (`Assets/CronaDB_banner.png`,
   `Assets/CronaDB_logo_icon.png`); README leads with the banner.
+- Launch-ready README rewrite: navigation strip, "use it for" section with
+  concrete scenarios, head-to-head comparison table (vs Neo4j, SQLite,
+  DuckDB, Datomic), FAQ, and explicit star/discussion CTAs.
+- Per-example READMEs under `examples/agent_memory/` and
+  `examples/dependency_tracking/` so the GitHub directory view shows what
+  each demo proves out.
+- `CITATION.cff` so users can cite CronaDB from a paper or post.
+- Polished `chrona-py/README.md` (now the PyPI landing page) with banner,
+  tabular API reference, and links back to the main repo's design docs.
 - GitHub PR template, issue templates (bug, feature, docs), and a private
   security advisory link in the issue chooser.
 - Dependabot configuration for Cargo and GitHub Actions, grouped weekly.
@@ -21,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - All repository URLs now point at
   `https://github.com/thetejasagrawal/CronaDB`.
+- README no longer publishes a forward-looking roadmap; future versions
+  ship when they ship.
 - `release.yml` now installs the cross-compilation linker for the
   `aarch64-unknown-linux-gnu` target so the release matrix succeeds on
   `ubuntu-latest`.

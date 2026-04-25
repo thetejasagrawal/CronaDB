@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+title: CronaDB
+message: >-
+  If you use this software in published work, please cite it using the
+  metadata below.
+type: software
+authors:
+  - family-names: Agrawal
+    given-names: Tejas
+    alias: thetejasagrawal
+abstract: >-
+  CronaDB is an open-source embedded temporal graph database. It stores
+  changing relationships with full validity windows, provenance, and event
+  history, and answers as-of and what-changed queries over the resulting
+  bitemporal graph. One file on disk, no server, written in Rust with
+  Python bindings.
+keywords:
+  - graph database
+  - temporal database
+  - bitemporal
+  - embedded database
+  - rust
+  - time-travel
+  - provenance
+license: MIT OR Apache-2.0
+repository-code: "https://github.com/thetejasagrawal/CronaDB"
+url: "https://github.com/thetejasagrawal/CronaDB"
+version: 1.0.0
+date-released: 2026-04-24
