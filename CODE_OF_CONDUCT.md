@@ -33,9 +33,9 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainers at `conduct@chrona.dev` (configured before
-first release). All complaints will be reviewed and investigated promptly and
-fairly.
+reported privately to the project maintainers at <tejasagrawal108@gmail.com>
+with `[chrona-conduct]` in the subject line. All complaints will be reviewed
+and investigated promptly and fairly.
 
 Maintainers are obligated to respect the privacy and security of the reporter.
 

@@ -1,0 +1,27 @@
+name: Documentation issue
+description: Something in the docs is wrong, missing, or unclear.
+title: "[docs] "
+labels: ["documentation", "good first issue"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Where
+      description: File path, section, or URL.
+      placeholder: "README.md §Quickstart, or docs/query-language.md §WHERE"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong
+      description: Inaccuracy, broken link, missing example, hard-to-follow phrasing — describe it concretely.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Optional. A concrete patch or rewording is welcome.

@@ -1,0 +1,61 @@
+name: Feature request
+description: Propose a new capability or enhancement.
+title: "[feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Per CONTRIBUTING.md, **open an issue before opening a PR** for anything
+        larger than a one-line fix. This is the cheapest way to know whether
+        we'll accept the work.
+
+        Chrona is intentionally scope-held. Proposals that fit the existing
+        philosophy (time-first, embedded, single-file) are most likely to land.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user-facing pain or limitation motivates this?
+      placeholder: "Today there's no way to filter by edge property values when running an as-of query."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: |
+        What would you add? Concrete API, syntax, or behavior — sketch it
+        even if it's rough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about? Why doesn't it work?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Surface
+      multiple: true
+      options:
+        - chrona-core (Rust library)
+        - chrona-query (DSL)
+        - chrona-cli (binary)
+        - chrona (Python package)
+        - On-disk format
+        - Documentation
+        - Tooling (CI, benchmarks, etc.)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Use cases, prior art in other databases, links, etc.

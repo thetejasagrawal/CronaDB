@@ -2,18 +2,23 @@
 
 ## Supported versions
 
-Chrona is pre-1.0. Only the latest minor version receives security fixes.
+Only the latest minor version of the 1.x series receives security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.1.x | ✅ |
-| < 0.1 | ❌ |
+| 1.x (latest) | ✅ |
+| < 1.0 | ❌ |
 
 ## Reporting a vulnerability
 
 **Do not file public issues for security vulnerabilities.**
 
-Email: `security@chrona.dev` (will be configured before first release).
+Please report privately via either channel:
+
+- **Preferred:** open a [GitHub private security advisory](https://github.com/thetejasagrawal/CronaDB/security/advisories/new)
+  on this repository.
+- **Backup:** email <tejasagrawal108@gmail.com> with `[chrona-security]` in the
+  subject line.
 
 Please include:
 
@@ -44,16 +49,18 @@ Out of scope (but still welcome as regular bugs):
 - Feature requests.
 - Issues requiring a malicious binary with write access to the database file.
 
-## Threat model (v0.1)
+## Threat model (v1.0)
 
-Chrona 0.1 is an embedded library. The threat model assumes:
+Chrona 1.0 is an embedded library. The threat model assumes:
 
 - The process opening the database is trusted.
 - The database file is not shared across trust boundaries without additional
   protection (e.g. filesystem-level encryption).
 - Query strings may come from untrusted input; parser DoS counts as a security
   issue.
-- Network access is not part of 0.x; the library does no I/O other than the
+- Network access is not part of 1.x; the library does no I/O other than the
   local file.
 
-This threat model tightens as we grow — 1.0 will document a more formal model.
+This threat model will tighten as the project grows. Future major versions
+may document a more formal model if the surface changes (e.g. networked
+sync, encryption-at-rest).
