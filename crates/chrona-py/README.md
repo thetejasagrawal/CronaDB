@@ -1,7 +1,7 @@
 # chrona (Python)
 
-Python bindings for [Chrona](https://github.com/chrona-db/chrona), the embedded
-temporal graph database.
+Python bindings for [CronaDB](https://github.com/thetejasagrawal/CronaDB), the
+embedded temporal graph database.
 
 ## Install
 

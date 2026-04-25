@@ -1,0 +1,99 @@
+name: Bug report
+description: Report a defect in Chrona (engine, CLI, or Python bindings).
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please give us enough to
+        reproduce — a minimal failing example beats a long prose description.
+
+        For security issues, **stop here** and follow [SECURITY.md](../SECURITY.md)
+        instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence on what's wrong.
+      placeholder: "FIND 2 HOPS panics on a graph with self-loops."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        Smallest sequence of operations that triggers the bug. Rust snippet,
+        CLI commands, or Python script — whatever's most natural.
+      render: shell
+      placeholder: |
+        chrona init repro.chrona
+        chrona import repro.chrona --file edges.jsonl --format jsonl
+        chrona query repro.chrona 'FIND 2 HOPS FROM "alice"'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened? Include error messages, stack traces, or unexpected output.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: chrona-version
+    attributes:
+      label: Chrona version
+      description: Output of `chrona --version`, or the crate / PyPI version you're on.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      multiple: true
+      options:
+        - chrona-core (Rust library)
+        - chrona-query (DSL)
+        - chrona-cli (binary)
+        - chrona (Python package)
+        - On-disk format
+        - Documentation
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust version (if relevant)
+      description: Output of `rustc --version`.
+      placeholder: "rustc 1.75.0"
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / architecture
+      placeholder: "macOS 14.4 arm64 / Ubuntu 22.04 x86_64 / Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else worth mentioning — workarounds tried, related issues, etc.

@@ -228,8 +228,8 @@ impl Snapshot {
 
     /// Run a full integrity check against the database.
     ///
-    /// Returns a [`VerifyReport`] with one line per check performed, plus a
-    /// list of any errors. A clean report is an empty errors list.
+    /// Returns a [`crate::VerifyReport`] with one line per check performed,
+    /// plus a list of any errors. A clean report is an empty errors list.
     pub fn verify(&self) -> Result<crate::verify::VerifyReport> {
         crate::verify::verify(&self.txn)
     }

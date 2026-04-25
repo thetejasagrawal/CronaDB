@@ -1,17 +1,21 @@
-# Chrona
+<p align="center">
+  <img src="./Assets/CronaDB_banner.png" alt="CronaDB" width="640">
+</p>
 
-**SQLite for graphs that change over time.**
+<p align="center"><b>SQLite for graphs that change over time.</b></p>
 
-Chrona is an open-source embedded temporal graph database. One file, no server,
-time-travel built in. Store changing relationships with full validity windows,
-provenance, and event history — then query not just what is true now, but what
-was true before and what changed.
+CronaDB is an open-source embedded temporal graph database. One file, no
+server, time-travel built in. Store changing relationships with full validity
+windows, provenance, and event history — then query not just what is true now,
+but what was true before and what changed.
 
-[![CI](https://github.com/chrona-db/chrona/actions/workflows/ci.yml/badge.svg)](https://github.com/chrona-db/chrona/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/badge/crates.io-1.0.0-blue.svg)](https://crates.io/crates/chrona-core)
-[![PyPI](https://img.shields.io/badge/pypi-1.0.0-blue.svg)](https://pypi.org/project/chrona/)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+<p align="center">
+  <a href="https://github.com/thetejasagrawal/CronaDB/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/thetejasagrawal/CronaDB/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://crates.io/crates/chrona-core"><img alt="crates.io" src="https://img.shields.io/badge/crates.io-1.0.0-blue.svg"></a>
+  <a href="https://pypi.org/project/chrona/"><img alt="PyPI" src="https://img.shields.io/badge/pypi-1.0.0-blue.svg"></a>
+  <a href="LICENSE-MIT"><img alt="License" src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg"></a>
+  <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-1.75%2B-orange.svg"></a>
+</p>
 
 > ✅ **Status: 1.0 released.** File format and public API stable under SemVer.
 > See [CHANGELOG.md](./CHANGELOG.md) for the stability contract.
@@ -37,7 +41,7 @@ $ chrona query memory.chrona 'WHAT CHANGED BETWEEN "2026-02-01" AND "2026-04-01"
 ```
 
 One file on disk. No server. Sub-second responses on laptop workloads. Python
-and TypeScript bindings planned for 0.2.
+bindings ship today; TypeScript bindings are planned for 1.1.
 
 ## Why another graph database?
 
@@ -58,12 +62,12 @@ That turns graphs from a static structure into a living system you can rewind.
 
 ```bash
 # From source (only option today)
-git clone https://github.com/chrona-db/chrona
-cd chrona
+git clone https://github.com/thetejasagrawal/CronaDB
+cd CronaDB
 cargo install --path crates/chrona-cli
 ```
 
-Once 0.1.0 lands on crates.io:
+Once published to crates.io:
 
 ```bash
 cargo install chrona-cli
@@ -244,12 +248,11 @@ otherwise.
 ## Design & philosophy
 
 Chrona is built around a small set of beliefs documented in
-[Chrona\_Product\_Thesis.md](./Chrona_Product_Thesis.md) (thesis) and
-[ARCHITECTURE.md](./ARCHITECTURE.md) (runtime), including:
+[ARCHITECTURE.md](./ARCHITECTURE.md), including:
 
 - Time is first-class. Every relationship carries validity.
 - The event log is the source of truth. The state graph is derivable.
 - Edges are immutable. Revisions happen by appending, never overwriting.
-- Do one thing well. No distributed story in 0.x.
+- Do one thing well. No distributed story in 1.x.
 
 If those resonate, you'll probably like working on this.

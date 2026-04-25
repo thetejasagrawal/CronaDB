@@ -1,14 +1,14 @@
 # Contributing to Chrona
 
-Thanks for considering a contribution. Chrona is pre-1.0; the project is small,
-opinionated, and moves fast. That means your contributions can have outsized
-impact, and it also means we're careful about scope.
+Thanks for considering a contribution. Chrona is small, opinionated, and moves
+deliberately. That means your contributions can have outsized impact, and it
+also means we're careful about scope.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/chrona-db/chrona
-cd chrona
+git clone https://github.com/thetejasagrawal/CronaDB
+cd CronaDB
 cargo build
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
@@ -71,8 +71,7 @@ If all four pass locally, you're ready to work.
 ## Licensing
 
 By contributing, you agree that your contributions will be licensed under the
-project's dual MIT / Apache-2.0 license. Large contributions may be asked to
-sign a CLA; this is decided case-by-case before 1.0.
+project's dual MIT / Apache-2.0 license.
 
 ## Security
 
@@ -87,10 +86,9 @@ See [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 
 Before writing code, read:
 
-1. [Chrona_Product_Thesis.md](./Chrona_Product_Thesis.md) — why this exists.
-2. [ARCHITECTURE.md](./ARCHITECTURE.md) — how it's shaped.
-3. [FORMAT.md](./FORMAT.md) — what the bytes look like.
+1. [ARCHITECTURE.md](./ARCHITECTURE.md) — how Chrona is shaped.
+2. [FORMAT.md](./FORMAT.md) — what the bytes look like.
 
-If your change contradicts any of these, say so in the PR and propose an edit
-to the relevant doc. We take those documents seriously and change them
+If your change contradicts either of these, say so in the PR and propose an
+edit to the relevant doc. We take these documents seriously and change them
 deliberately.

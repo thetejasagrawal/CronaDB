@@ -1,8 +1,8 @@
 //! Full database verification per FORMAT.md §8.
 //!
-//! Exposed through [`Snapshot::verify`]. Walks every table, checks invariants,
-//! and returns a [`VerifyReport`] listing the checks performed and any errors
-//! found.
+//! Exposed through [`crate::Snapshot::verify`]. Walks every table, checks
+//! invariants, and returns a [`VerifyReport`] listing the checks performed
+//! and any errors found.
 
 use crate::error::Result;
 use crate::graph::{Edge, Node};
@@ -11,7 +11,7 @@ use crate::storage::tables::{self, meta_keys};
 use crate::time::Ts;
 use redb::{ReadTransaction, ReadableTable, ReadableTableMetadata};
 
-/// Outcome of [`Snapshot::verify`].
+/// Outcome of [`crate::Snapshot::verify`].
 #[derive(Debug, Clone, Default)]
 pub struct VerifyReport {
     /// Human-readable log of each check performed.

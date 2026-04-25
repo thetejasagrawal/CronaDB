@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Project banner and icon (`Assets/CronaDB_banner.png`,
+  `Assets/CronaDB_logo_icon.png`); README leads with the banner.
+- GitHub PR template, issue templates (bug, feature, docs), and a private
+  security advisory link in the issue chooser.
+- Dependabot configuration for Cargo and GitHub Actions, grouped weekly.
+- `python-release.yml` workflow to build abi3-py37 wheels and publish to PyPI
+  via trusted publishing on tag push.
+
+### Changed
+
+- All repository URLs now point at
+  `https://github.com/thetejasagrawal/CronaDB`.
+- `release.yml` now installs the cross-compilation linker for the
+  `aarch64-unknown-linux-gnu` target so the release matrix succeeds on
+  `ubuntu-latest`.
+- Fixed three broken intra-doc links in `chrona-core` (`Snapshot::verify`,
+  `VerifyReport`) so `cargo doc -D warnings` is clean and the CI docs job
+  passes.
+- Documentation pass: removed dangling references to a thesis document that
+  was never published, refreshed `docs/query-language.md` to describe the
+  shipped 1.0 grammar (WHERE, LIMIT) instead of pre-1.0 plans, and replaced
+  placeholder contact addresses in `SECURITY.md` and `CODE_OF_CONDUCT.md`
+  with real channels.
+
 ## [1.0.0] - 2026-04-24
 
 First stable release. API and on-disk format are locked under SemVer 1.x.

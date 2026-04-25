@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # Cargo workspace (chrona-core, chrona-query, chrona-cli, chrona-py)
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      patch-and-minor:
+        update-types:
+          - patch
+          - minor
+
+  # GitHub Actions used by ci.yml and release.yml
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci

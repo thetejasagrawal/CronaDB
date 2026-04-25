@@ -23,9 +23,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/chrona-db/chrona"
-Documentation = "https://github.com/chrona-db/chrona/tree/main/docs"
-Repository = "https://github.com/chrona-db/chrona"
+Homepage = "https://github.com/thetejasagrawal/CronaDB"
+Documentation = "https://github.com/thetejasagrawal/CronaDB/tree/main/docs"
+Repository = "https://github.com/thetejasagrawal/CronaDB"
 
 [tool.maturin]
 module-name = "chrona"
