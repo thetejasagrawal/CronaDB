@@ -25,4 +25,4 @@ time = { workspace = true }
 
 # Terminal UI (`chrona tui`). crossterm 0.28 pairs with ratatui 0.28.
 ratatui = "0.28"
-crossterm = "0.28"
+crossterm = "0.29"
